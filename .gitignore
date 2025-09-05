@@ -3,13 +3,10 @@ node_modules/
 */node_modules/
 
 # Environment variables
-.env
-*/.env
+
 
 # Database files
-*.db
-*.sqlite
-*.sqlite3
+
 
 # Python cache
 __pycache__/
