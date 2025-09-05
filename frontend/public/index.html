@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hackathon Certificate DApp</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            text-align: center;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.2rem;
+        }
+
+        .content {
+            padding: 50px 40px;
+        }
+
+        .role-selection {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 30px;
+            margin-top: 30px;
+        }
+
+        .role-card {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 15px;
+            padding: 30px 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .role-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+            border-color: #667eea;
+        }
+
+        .role-icon {
+            font-size: 3rem;
+            margin-bottom: 20px;
+        }
+
+        .role-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .role-description {
+            color: #666;
+            font-size: 0.95rem;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏆 Hackathon Certificate DApp</h1>
+            <p>Decentralized NFT Certificate Management System</p>
+        </div>
+        
+        <div class="content">
+            <h2>Select Your Role</h2>
+            <div class="role-selection">
+                <a href="admin.html" class="role-card">
+                    <div class="role-icon">👑</div>
+                    <div class="role-title">Admin</div>
+                    <div class="role-description">
+                        System administration and overall management of the platform
+                    </div>
+                </a>
+
+                <a href="organizer.html" class="role-card">
+                    <div class="role-icon">📋</div>
+                    <div class="role-title">Organizer</div>
+                    <div class="role-description">
+                        Create events, manage participants, and generate certificates
+                    </div>
+                </a>
+
+                <a href="hacker.html" class="role-card">
+                    <div class="role-icon">💻</div>
+                    <div class="role-title">Hacker</div>
+                    <div class="role-description">
+                        Register for events and receive your NFT certificates
+                    </div>
+                </a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

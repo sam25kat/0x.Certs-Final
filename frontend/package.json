@@ -1,0 +1,15 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "serve -s public -l 3000",
+    "build": "echo 'Build complete'"
+  },
+  "dependencies": {
+    "ethers": "^5.7.2"
+  },
+  "devDependencies": {
+    "serve": "^14.2.1"
+  }
+}
