@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Wallet Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { padding: 15px 30px; margin: 10px; font-size: 16px; cursor: pointer; }
+        .status { padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Simple Wallet Connection Test</h1>
+    
+    <div>
+        <button onclick="testBasics()">1. Test Basics</button>
+        <button onclick="testMetaMask()">2. Test MetaMask</button>
+        <button onclick="connectWallet()">3. Connect Wallet</button>
+        <button onclick="testNetwork()">4. Test Network</button>
+    </div>
+    
+    <div id="status"></div>
+    <div id="output"><pre id="log"></pre></div>
+
+    <script>
+        let provider = null;
+        let userWallet = null;
+        
+        function log(message) {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.textContent += `[${timestamp}] ${message}\n`;
+            console.log(message);
+        }
+        
+        function showStatus(type, message) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+        }
+        
+        function clearLog() {
+            document.getElementById('log').textContent = '';
+        }
+        
+        async function testBasics() {
+            clearLog();
+            log('🔧 Testing Basic Setup...');
+            
+            log('✓ Ethers.js available: ' + (typeof ethers !== 'undefined'));
+            if (typeof ethers !== 'undefined') {
+                log('✓ Ethers version: ' + ethers.version);
+            }
+            
+            log('✓ window.ethereum available: ' + (typeof window.ethereum !== 'undefined'));
+            
+            if (window.ethereum) {
+                log('✓ Ethereum provider detected');
+                log('✓ Provider is MetaMask: ' + window.ethereum.isMetaMask);
+            }
+            
+            showStatus('info', 'Basic tests completed - check output above');
+        }
+        
+        async function testMetaMask() {
+            clearLog();
+            log('🦊 Testing MetaMask...');
+            
+            try {
+                // Check current accounts (no permission request)
+                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                log('✓ Current accounts: ' + JSON.stringify(accounts));
+                
+                // Check current chain
+                const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+                log('✓ Current chain ID: ' + chainId + ' (' + parseInt(chainId, 16) + ')');
+                
+                showStatus('success', 'MetaMask tests completed successfully');
+                
+            } catch (error) {
+                log('❌ MetaMask test error: ' + error.message);
+                showStatus('error', 'MetaMask test failed: ' + error.message);
+            }
+        }
+        
+        async function connectWallet() {
+            clearLog();
+            log('🔌 Connecting Wallet...');
+            
+            try {
+                showStatus('info', 'Requesting wallet connection...');
+                
+                // Request accounts (will show MetaMask popup)
+                log('📝 Requesting eth_requestAccounts...');
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                
+                if (accounts.length === 0) {
+                    throw new Error('No accounts returned');
+                }
+                
+                userWallet = accounts[0];
+                log('✅ Connected to wallet: ' + userWallet);
+                
+                // Initialize provider
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                log('✅ Provider initialized');
+                
+                // Test getting signer
+                const signer = provider.getSigner();
+                const address = await signer.getAddress();
+                log('✅ Signer address: ' + address);
+                
+                // Check balance
+                const balance = await provider.getBalance(address);
+                const balanceFormatted = ethers.utils.formatEther(balance);
+                log('✅ Balance: ' + balanceFormatted + ' ETH');
+                
+                showStatus('success', 'Wallet connected successfully!');
+                
+            } catch (error) {
+                log('❌ Connection error: ' + error.message);
+                log('❌ Error code: ' + error.code);
+                
+                let errorMessage = 'Connection failed: ' + error.message;
+                if (error.code === 4001) {
+                    errorMessage = 'Connection rejected by user';
+                } else if (error.code === -32002) {
+                    errorMessage = 'MetaMask is busy, please try again';
+                }
+                
+                showStatus('error', errorMessage);
+            }
+        }
+        
+        async function testNetwork() {
+            clearLog();
+            log('🌐 Testing Network...');
+            
+            try {
+                if (!provider) {
+                    provider = new ethers.providers.Web3Provider(window.ethereum);
+                }
+                
+                const network = await provider.getNetwork();
+                log('✅ Network info: ' + JSON.stringify(network, null, 2));
+                
+                const blockNumber = await provider.getBlockNumber();
+                log('✅ Current block: ' + blockNumber);
+                
+                showStatus('success', 'Network tests completed');
+                
+            } catch (error) {
+                log('❌ Network error: ' + error.message);
+                showStatus('error', 'Network test failed: ' + error.message);
+            }
+        }
+        
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', function() {
+            log('🚀 Page loaded, ready for testing');
+            testBasics();
+        });
+    </script>
+</body>
+</html>

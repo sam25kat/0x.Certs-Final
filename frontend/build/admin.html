@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Hackathon Certificate DApp</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-left h1 {
+            font-size: 2rem;
+            margin-bottom: 5px;
+        }
+
+        .back-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .back-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .content {
+            padding: 40px;
+            display: grid;
+            gap: 30px;
+        }
+
+        .wallet-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .wallet-info {
+            display: none;
+            padding: 10px;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 5px;
+            margin-top: 10px;
+            word-break: break-all;
+            font-size: 0.9rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+
+        .section {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 10px;
+        }
+
+        .section h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .status.loading {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .events-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .events-table th,
+        .events-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .events-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .events-table td {
+            font-size: 0.9rem;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .badge.active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge.inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <h1>👑 Admin Dashboard</h1>
+                <p>System administration and platform overview</p>
+            </div>
+            <a href="index.html" class="back-btn">← Back to Home</a>
+        </div>
+        
+        <div class="content">
+            <!-- Wallet Connection -->
+            <div class="wallet-section">
+                <button id="connectWallet" class="btn">Connect Wallet</button>
+                <div id="walletInfo" class="wallet-info"></div>
+            </div>
+
+            <!-- Statistics -->
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-card">
+                    <div class="stat-number" id="totalEvents">-</div>
+                    <div class="stat-label">Total Events</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="totalParticipants">-</div>
+                    <div class="stat-label">Total Participants</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="totalPoAs">-</div>
+                    <div class="stat-label">PoA NFTs Minted</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="totalCertificates">-</div>
+                    <div class="stat-label">Certificates Minted</div>
+                </div>
+            </div>
+
+            <!-- System Actions -->
+            <div class="section">
+                <h3>🛠️ System Actions</h3>
+                <button class="btn" onclick="refreshData()">🔄 Refresh Data</button>
+                <button class="btn" onclick="checkSystemHealth()">❤️ Check System Health</button>
+            </div>
+
+            <!-- All Events -->
+            <div class="section">
+                <h3>📊 All Events</h3>
+                <div id="eventsTableContainer">
+                    <p>Loading events...</p>
+                </div>
+            </div>
+
+            <div id="status" class="status"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let userWallet = null;
+        let provider = null;
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if ethers is loaded
+            if (typeof ethers === 'undefined') {
+                showStatus('error', 'Ethers.js library failed to load. Please refresh the page.');
+                return;
+            }
+            
+            // Check if MetaMask is installed
+            if (typeof window.ethereum === 'undefined') {
+                showStatus('error', 'MetaMask is not installed. Please install MetaMask to use this DApp.');
+                return;
+            }
+            
+            // Add event listeners
+            document.getElementById('connectWallet').addEventListener('click', connectWallet);
+            
+            // Auto-connect if previously connected
+            checkConnection();
+            
+            // Load initial data
+            refreshData();
+        });
+        
+        async function checkConnection() {
+            try {
+                if (window.ethereum && window.ethereum.selectedAddress) {
+                    await connectWallet();
+                }
+            } catch (error) {
+                console.log('No previous connection found');
+            }
+        }
+        
+        async function connectWallet() {
+            try {
+                showStatus('loading', 'Connecting to wallet...');
+                
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                await provider.send("eth_requestAccounts", []);
+                
+                const signer = provider.getSigner();
+                userWallet = await signer.getAddress();
+                
+                // Check network
+                const network = await provider.getNetwork();
+                console.log('Current network:', network);
+                
+                if (network.chainId !== 31337) {
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: '0x7a69' }],
+                        });
+                    } catch (switchError) {
+                        if (switchError.code === 4902) {
+                            await window.ethereum.request({
+                                method: 'wallet_addEthereumChain',
+                                params: [{
+                                    chainId: '0x7a69',
+                                    chainName: 'Localhost 8545',
+                                    rpcUrls: ['http://127.0.0.1:8545'],
+                                    nativeCurrency: {
+                                        name: 'Localhost ETH',
+                                        symbol: 'ETH',
+                                        decimals: 18
+                                    }
+                                }]
+                            });
+                        }
+                    }
+                }
+                
+                // Update UI
+                document.getElementById('connectWallet').textContent = 'Wallet Connected ✅';
+                document.getElementById('connectWallet').disabled = true;
+                document.getElementById('walletInfo').style.display = 'block';
+                document.getElementById('walletInfo').textContent = `Connected: ${userWallet}`;
+                
+                hideStatus();
+                
+            } catch (error) {
+                console.error('Error connecting wallet:', error);
+                showStatus('error', 'Failed to connect wallet: ' + error.message);
+            }
+        }
+
+        async function refreshData() {
+            showStatus('loading', 'Refreshing data...');
+            
+            try {
+                // Load events and calculate statistics
+                const eventsResponse = await fetch(`${API_BASE}/events`);
+                const eventsResult = await eventsResponse.json();
+                
+                if (eventsResponse.ok && eventsResult.events) {
+                    const events = eventsResult.events;
+                    
+                    // Update statistics
+                    document.getElementById('totalEvents').textContent = events.length;
+                    
+                    // Calculate other stats by loading participants for each event
+                    let totalParticipants = 0;
+                    let totalPoAs = 0;
+                    let totalCertificates = 0;
+                    
+                    for (const event of events) {
+                        try {
+                            const participantsResponse = await fetch(`${API_BASE}/participants/${event.id}`);
+                            if (participantsResponse.ok) {
+                                const participantsResult = await participantsResponse.json();
+                                const participants = participantsResult.participants || [];
+                                
+                                totalParticipants += participants.length;
+                                totalPoAs += participants.filter(p => p.poa_minted).length;
+                                totalCertificates += participants.filter(p => p.certificate_minted).length;
+                            }
+                        } catch (error) {
+                            console.warn(`Failed to load participants for event ${event.id}`);
+                        }
+                    }
+                    
+                    // Update stats display
+                    document.getElementById('totalParticipants').textContent = totalParticipants;
+                    document.getElementById('totalPoAs').textContent = totalPoAs;
+                    document.getElementById('totalCertificates').textContent = totalCertificates;
+                    
+                    // Update events table
+                    displayEventsTable(events);
+                    
+                    showStatus('success', 'Data refreshed successfully');
+                } else {
+                    showStatus('error', 'Failed to load events data');
+                }
+                
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+                showStatus('error', 'Failed to refresh data: ' + error.message);
+            }
+        }
+
+        function displayEventsTable(events) {
+            const container = document.getElementById('eventsTableContainer');
+            
+            if (events.length === 0) {
+                container.innerHTML = '<p>No events found.</p>';
+                return;
+            }
+            
+            container.innerHTML = `
+                <table class="events-table">
+                    <thead>
+                        <tr>
+                            <th>Event Name</th>
+                            <th>Event Code</th>
+                            <th>Event ID</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${events.map(event => `
+                            <tr>
+                                <td>${event.event_name}</td>
+                                <td><strong>${event.event_code}</strong></td>
+                                <td>${event.id}</td>
+                                <td>
+                                    <span class="badge ${event.is_active ? 'active' : 'inactive'}">
+                                        ${event.is_active ? 'Active' : 'Inactive'}
+                                    </span>
+                                </td>
+                                <td>${new Date(event.created_at).toLocaleDateString()}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        async function checkSystemHealth() {
+            try {
+                showStatus('loading', 'Checking system health...');
+                
+                const response = await fetch(`${API_BASE}/health`);
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showStatus('success', `System is healthy! Status: ${result.status} | Time: ${result.timestamp}`);
+                } else {
+                    showStatus('error', 'System health check failed');
+                }
+                
+            } catch (error) {
+                console.error('Health check error:', error);
+                showStatus('error', 'Health check failed: ' + error.message);
+            }
+        }
+        
+        function showStatus(type, message) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+            
+            if (type === 'loading') {
+                statusDiv.innerHTML = `<span class="loading-spinner"></span>${message}`;
+            } else {
+                statusDiv.textContent = message;
+            }
+            
+            if (type !== 'loading') {
+                setTimeout(() => {
+                    hideStatus();
+                }, 5000);
+            }
+        }
+        
+        function hideStatus() {
+            document.getElementById('status').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

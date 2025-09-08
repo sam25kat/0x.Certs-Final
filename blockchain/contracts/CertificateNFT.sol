@@ -32,6 +32,22 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
         require(!hasPoAForEvent[recipient][eventId], "PoA already minted for this event");
         require(bytes(eventNames[eventId]).length > 0, "Event does not exist");
         
+        uint256 tokenId = _mintPoAInternal(recipient, eventId);
+        emit PoAMinted(recipient, tokenId, eventId);
+    }
+    
+    function bulkMintPoA(address[] memory recipients, uint256 eventId) external {
+        require(bytes(eventNames[eventId]).length > 0, "Event does not exist");
+        
+        for (uint256 i = 0; i < recipients.length; i++) {
+            address recipient = recipients[i];
+            // Remove duplicate check to allow organizer to receive multiple tokens
+            uint256 tokenId = _mintPoAInternal(recipient, eventId);
+            emit PoAMinted(recipient, tokenId, eventId);
+        }
+    }
+    
+    function _mintPoAInternal(address recipient, uint256 eventId) internal returns (uint256) {
         uint256 tokenId = _tokenIdCounter.current();
         _tokenIdCounter.increment();
         
@@ -41,12 +57,34 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
         tokenToEventId[tokenId] = eventId;
         hasPoAForEvent[recipient][eventId] = true;
         
-        string memory defaultURI = string(abi.encodePacked(
-            "data:application/json;base64,eyJuYW1lIjoiUHJvb2Ygb2YgQXR0ZW5kYW5jZSIsImRlc2NyaXB0aW9uIjoiSGFja2F0aG9uIFByb29mIG9mIEF0dGVuZGFuY2UgTkZUIiwiYXR0cmlidXRlcyI6W3sidHJhaXRfdHlwZSI6IlR5cGUiLCJ2YWx1ZSI6IlBvQSJ9XX0="
-        ));
-        _setTokenURI(tokenId, defaultURI);
+        // Create dynamic metadata with event name
+        string memory eventName = eventNames[eventId];
+        string memory nftName = string(abi.encodePacked(eventName, " - PoA"));
+        string memory description = string(abi.encodePacked("Proof of Attendance for ", eventName));
         
-        emit PoAMinted(recipient, tokenId, eventId);
+        // Create JSON metadata (simplified, but includes event name)
+        string memory jsonMetadata = string(abi.encodePacked(
+            '{"name":"', nftName, 
+            '","description":"', description,
+            '","attributes":[{"trait_type":"Type","value":"PoA"},{"trait_type":"Event","value":"', eventName, '"}]}'
+        ));
+        
+        // Convert to base64
+        string memory base64JSON = _base64Encode(bytes(jsonMetadata));
+        string memory finalURI = string(abi.encodePacked("data:application/json;base64,", base64JSON));
+        
+        _setTokenURI(tokenId, finalURI);
+        
+        return tokenId;
+    }
+    
+    function batchTransfer(address[] memory recipients, uint256[] memory tokenIds) external {
+        require(recipients.length == tokenIds.length, "Arrays length mismatch");
+        
+        for (uint256 i = 0; i < recipients.length; i++) {
+            require(ownerOf(tokenIds[i]) == msg.sender, "Not token owner");
+            _transfer(msg.sender, recipients[i], tokenIds[i]);
+        }
     }
     
     function mintCertificate(address recipient, uint256 eventId, string memory ipfsHash) external onlyOwner {
@@ -95,7 +133,7 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
         uint256 batchSize
     ) internal override(ERC721) {
         super._beforeTokenTransfer(from, to, tokenId, batchSize);
-        require(from == address(0) || to == address(0), "Soulbound: Transfer not allowed");
+        // Allow transfers (removed soulbound restriction for PoA NFTs)
     }
     
     function _burn(uint256 tokenId) internal override(ERC721, ERC721URIStorage) {
@@ -108,5 +146,44 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
     
     function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC721URIStorage) returns (bool) {
         return super.supportsInterface(interfaceId);
+    }
+    
+    // Base64 encoding function
+    function _base64Encode(bytes memory data) internal pure returns (string memory) {
+        if (data.length == 0) return "";
+        
+        string memory table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        uint256 encodedLen = 4 * ((data.length + 2) / 3);
+        string memory result = new string(encodedLen + 32);
+        
+        assembly {
+            let tablePtr := add(table, 1)
+            let dataPtr := data
+            let endPtr := add(dataPtr, mload(data))
+            let resultPtr := add(result, 32)
+            
+            for {} lt(dataPtr, endPtr) {}
+            {
+                dataPtr := add(dataPtr, 3)
+                let input := mload(dataPtr)
+                
+                mstore8(resultPtr, mload(add(tablePtr, and(shr(18, input), 0x3F))))
+                resultPtr := add(resultPtr, 1)
+                mstore8(resultPtr, mload(add(tablePtr, and(shr(12, input), 0x3F))))
+                resultPtr := add(resultPtr, 1)
+                mstore8(resultPtr, mload(add(tablePtr, and(shr(6, input), 0x3F))))
+                resultPtr := add(resultPtr, 1)
+                mstore8(resultPtr, mload(add(tablePtr, and(input, 0x3F))))
+                resultPtr := add(resultPtr, 1)
+            }
+            
+            switch mod(mload(data), 3)
+            case 1 { mstore(sub(resultPtr, 2), shl(240, 0x3d3d)) }
+            case 2 { mstore(sub(resultPtr, 1), shl(248, 0x3d)) }
+            
+            mstore(result, encodedLen)
+        }
+        
+        return result;
     }
 }

@@ -65,6 +65,27 @@ CONTRACT_ABI = [
         "type": "function"
     },
     {
+        "inputs": [{"internalType": "address[]", "name": "recipients", "type": "address[]"}, {"internalType": "uint256", "name": "eventId", "type": "uint256"}],
+        "name": "bulkMintPoA",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [{"internalType": "address", "name": "from", "type": "address"}, {"internalType": "address", "name": "to", "type": "address"}, {"internalType": "uint256", "name": "tokenId", "type": "uint256"}],
+        "name": "transferFrom",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [{"internalType": "address[]", "name": "recipients", "type": "address[]"}, {"internalType": "uint256[]", "name": "tokenIds", "type": "uint256[]"}],
+        "name": "batchTransfer",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
         "inputs": [{"internalType": "address", "name": "recipient", "type": "address"}, {"internalType": "uint256", "name": "eventId", "type": "uint256"}, {"internalType": "string", "name": "ipfsHash", "type": "string"}],
         "name": "mintCertificate",
         "outputs": [],
@@ -140,12 +161,63 @@ def init_db():
             team_name TEXT,
             event_id INTEGER,
             registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            poa_minted BOOLEAN DEFAULT FALSE,
-            certificate_minted BOOLEAN DEFAULT FALSE,
+            poa_status TEXT DEFAULT 'registered',
+            poa_token_id INTEGER,
+            poa_minted_at TIMESTAMP,
+            poa_transferred_at TIMESTAMP,
+            certificate_status TEXT DEFAULT 'not_eligible',
+            certificate_token_id INTEGER,
+            certificate_minted_at TIMESTAMP,
+            certificate_transferred_at TIMESTAMP,
             certificate_ipfs_hash TEXT,
             FOREIGN KEY (event_id) REFERENCES events (id)
         )
     """)
+    
+    # Add new columns to existing participants table if they don't exist
+    try:
+        cursor.execute("ALTER TABLE participants ADD COLUMN poa_status TEXT DEFAULT 'registered'")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        cursor.execute("ALTER TABLE participants ADD COLUMN poa_token_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE participants ADD COLUMN poa_minted_at TIMESTAMP")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE participants ADD COLUMN poa_transferred_at TIMESTAMP")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE participants ADD COLUMN certificate_status TEXT DEFAULT 'not_eligible'")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE participants ADD COLUMN certificate_token_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE participants ADD COLUMN certificate_minted_at TIMESTAMP")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE participants ADD COLUMN certificate_transferred_at TIMESTAMP")
+    except sqlite3.OperationalError:
+        pass
+    
+    # Migrate existing data
+    cursor.execute("UPDATE participants SET poa_status = 'transferred' WHERE poa_minted = TRUE")
+    cursor.execute("UPDATE participants SET certificate_status = 'transferred' WHERE certificate_minted = TRUE")
     
     conn.commit()
     conn.close()
@@ -358,14 +430,14 @@ def get_onchain_participants(event_id: int = None):
         
         # Get PoA minted events using get_logs
         poa_events = contract.events.PoAMinted.get_logs(
-            from_block=0,
-            to_block='latest'
+            fromBlock=0,
+            toBlock='latest'
         )
         
         # Get Certificate minted events using get_logs
         cert_events = contract.events.CertificateMinted.get_logs(
-            from_block=0,
-            to_block='latest'
+            fromBlock=0,
+            toBlock='latest'
         )
         
         print(f"🔍 Found {len(poa_events)} PoA events and {len(cert_events)} certificate events")
@@ -425,7 +497,7 @@ def get_participant_details_from_db(wallet_address: str, event_id: int):
         # Convert to lowercase for database lookup (case-insensitive)
         wallet_address_lower = wallet_address.lower()
         cursor.execute(
-            "SELECT name, email, team_name FROM participants WHERE LOWER(wallet_address) = ? AND event_id = ?",
+            "SELECT name, email, team_name, poa_status, poa_minted_at, poa_transferred_at, certificate_status, certificate_minted_at, certificate_transferred_at FROM participants WHERE LOWER(wallet_address) = ? AND event_id = ?",
             (wallet_address_lower, event_id)
         )
         result = cursor.fetchone()
@@ -433,7 +505,13 @@ def get_participant_details_from_db(wallet_address: str, event_id: int):
             return {
                 'name': result[0],
                 'email': result[1], 
-                'team_name': result[2]
+                'team_name': result[2],
+                'poa_status': result[3],
+                'poa_minted_at': result[4],
+                'poa_transferred_at': result[5],
+                'certificate_status': result[6],
+                'certificate_minted_at': result[7],
+                'certificate_transferred_at': result[8]
             }
         return None
     finally:
@@ -676,6 +754,215 @@ async def confirm_poa_mint(request: dict):
     finally:
         conn.close()
 
+@app.post("/bulk_mint_poa/{event_id}")
+async def bulk_mint_poa(event_id: int, request: dict):
+    """Bulk mint PoA NFTs for all registered participants of an event"""
+    organizer_wallet = request.get("organizer_wallet")
+    
+    print(f"🎯 BULK MINT DEBUG - Received organizer_wallet: {organizer_wallet}")
+    
+    if not organizer_wallet:
+        raise HTTPException(status_code=400, detail="Organizer wallet address required")
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Get all registered participants for this event
+        cursor.execute(
+            "SELECT wallet_address, name FROM participants WHERE event_id = ? AND poa_status = 'registered'",
+            (event_id,)
+        )
+        participants = cursor.fetchall()
+        
+        if not participants:
+            raise HTTPException(status_code=404, detail="No registered participants found")
+        
+        # Get event name for NFT metadata
+        cursor.execute("SELECT event_name FROM events WHERE id = ?", (event_id,))
+        event_result = cursor.fetchone()
+        if not event_result:
+            raise HTTPException(status_code=404, detail="Event not found")
+        
+        event_name = event_result[0]
+        
+        # For bulk mint, mint all NFTs to the organizer first
+        # They will be transferred to participants later via batch transfer
+        try:
+            organizer_checksum = w3.to_checksum_address(organizer_wallet)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid organizer wallet address: {e}")
+        
+        # Create array of organizer addresses (one for each participant)
+        recipient_addresses = [organizer_checksum] * len(participants)
+        
+        # Return data for frontend to execute bulk mint transaction
+        return {
+            "message": f"Ready to bulk mint {len(participants)} PoA NFTs",
+            "event_id": event_id,
+            "event_name": event_name,
+            "recipients": recipient_addresses,
+            "participant_count": len(participants),
+            "organizer_wallet": organizer_wallet
+        }
+        
+    finally:
+        conn.close()
+
+@app.post("/confirm_bulk_mint_poa")
+async def confirm_bulk_mint_poa(request: dict):
+    """Confirm that bulk PoA NFTs were minted"""
+    event_id = request.get("event_id")
+    tx_hash = request.get("tx_hash")
+    token_ids = request.get("token_ids", [])
+    
+    if not all([event_id, tx_hash]):
+        raise HTTPException(status_code=400, detail="Missing required fields")
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Get all registered participants for this event
+        cursor.execute(
+            "SELECT id, wallet_address FROM participants WHERE event_id = ? AND poa_status = 'registered' ORDER BY id",
+            (event_id,)
+        )
+        participants = cursor.fetchall()
+        
+        # Update each participant's status to minted
+        for i, (participant_id, wallet_address) in enumerate(participants):
+            token_id = token_ids[i] if i < len(token_ids) else None
+            
+            cursor.execute(
+                "UPDATE participants SET poa_status = 'minted', poa_token_id = ?, poa_minted_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (token_id, participant_id)
+            )
+        
+        conn.commit()
+        
+        print(f"✅ Bulk PoA mint confirmed for {len(participants)} participants - TX: {tx_hash}")
+        return {
+            "message": f"Bulk PoA NFT mint confirmed for {len(participants)} participants",
+            "tx_hash": tx_hash,
+            "participants_updated": len(participants)
+        }
+        
+    finally:
+        conn.close()
+
+@app.post("/batch_transfer_poa/{event_id}")
+async def batch_transfer_poa(event_id: int, request: dict):
+    """Batch transfer PoA NFTs from organizer to participants"""
+    organizer_wallet = request.get("organizer_wallet")
+    
+    if not organizer_wallet:
+        raise HTTPException(status_code=400, detail="Organizer wallet address required")
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Get all minted but not transferred participants
+        cursor.execute(
+            "SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = ? AND poa_status = 'minted' AND poa_token_id IS NOT NULL",
+            (event_id,)
+        )
+        participants = cursor.fetchall()
+        
+        if not participants:
+            # Check if event exists
+            cursor.execute("SELECT COUNT(*) FROM events WHERE id = ?", (event_id,))
+            event_exists = cursor.fetchone()[0] > 0
+            
+            if not event_exists:
+                raise HTTPException(status_code=404, detail=f"Event ID {event_id} not found")
+            
+            # Check all participants for this event
+            cursor.execute("SELECT wallet_address, poa_status, poa_token_id FROM participants WHERE event_id = ?", (event_id,))
+            all_participants = cursor.fetchall()
+            
+            if not all_participants:
+                raise HTTPException(status_code=404, detail=f"No participants found for event {event_id}")
+            
+            # Analyze why no minted participants
+            status_counts = {}
+            missing_token_count = 0
+            for p in all_participants:
+                status = p[1]  # poa_status
+                token_id = p[2]  # poa_token_id
+                status_counts[status] = status_counts.get(status, 0) + 1
+                if status == 'minted' and token_id is None:
+                    missing_token_count += 1
+            
+            error_msg = f"No PoA NFTs ready for transfer. Participant statuses: {status_counts}"
+            if missing_token_count > 0:
+                error_msg += f". {missing_token_count} participants have 'minted' status but missing token IDs."
+            
+            raise HTTPException(status_code=404, detail=error_msg)
+        
+        recipients = []
+        token_ids = []
+        
+        for wallet_address, token_id, name in participants:
+            # Convert to checksum format
+            try:
+                checksum_address = w3.to_checksum_address(wallet_address)
+                recipients.append(checksum_address)
+                token_ids.append(token_id)
+            except Exception as e:
+                print(f"⚠️ Invalid wallet address {wallet_address}: {e}")
+                continue
+        
+        print(f"🔄 Batch transfer for event {event_id}:")
+        print(f"   - Organizer: {organizer_wallet}")
+        print(f"   - Recipients: {recipients}")
+        print(f"   - Token IDs: {token_ids}")
+        
+        return {
+            "message": f"Ready to transfer {len(participants)} PoA NFTs",
+            "event_id": event_id,
+            "recipients": recipients,
+            "token_ids": token_ids,
+            "transfer_count": len(participants),
+            "organizer_wallet": organizer_wallet
+        }
+        
+    finally:
+        conn.close()
+
+@app.post("/confirm_batch_transfer_poa")
+async def confirm_batch_transfer_poa(request: dict):
+    """Confirm that PoA NFTs were batch transferred"""
+    event_id = request.get("event_id")
+    tx_hash = request.get("tx_hash")
+    
+    if not all([event_id, tx_hash]):
+        raise HTTPException(status_code=400, detail="Missing required fields")
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Update all minted participants to transferred status
+        cursor.execute(
+            "UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = ? AND poa_status = 'minted'",
+            (event_id,)
+        )
+        
+        updated_count = cursor.rowcount
+        conn.commit()
+        
+        print(f"✅ Batch PoA transfer confirmed for {updated_count} participants - TX: {tx_hash}")
+        return {
+            "message": f"Batch PoA NFT transfer confirmed for {updated_count} participants",
+            "tx_hash": tx_hash,
+            "participants_updated": updated_count
+        }
+        
+    finally:
+        conn.close()
+
 @app.post("/upload_template/{event_id}")
 async def upload_template(event_id: int, file: UploadFile = File(...)):
     """Upload certificate template for an event"""
@@ -896,34 +1183,66 @@ async def get_events():
 
 @app.get("/participants/{event_id}")
 async def get_participants(event_id: int):
-    """Get all participants for an event from blockchain data"""
+    """Get all participants for an event from database with blockchain enrichment"""
     print(f"🔍 Getting participants for event ID: {event_id}")
     
     try:
-        # Get on-chain participants
-        onchain_participants = get_onchain_participants(event_id)
-        print(f"📡 Found {len(onchain_participants)} on-chain participants")
+        # Start with all database participants (including those who are just registered)
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
         
-        # Enrich with database details
+        cursor.execute(
+            """SELECT wallet_address, name, email, team_name, poa_status, poa_token_id, 
+                      poa_minted_at, poa_transferred_at, certificate_status, certificate_token_id,
+                      certificate_minted_at, certificate_transferred_at, certificate_ipfs_hash
+               FROM participants WHERE event_id = ?""",
+            (event_id,)
+        )
+        db_participants = cursor.fetchall()
+        conn.close()
+        
+        print(f"📊 Found {len(db_participants)} participants in database")
+        
+        # Get blockchain data for enrichment
+        try:
+            onchain_participants = get_onchain_participants(event_id)
+            print(f"📡 Found {len(onchain_participants)} on-chain participants")
+            
+            # Create a lookup dict for blockchain data
+            onchain_lookup = {}
+            for p in onchain_participants:
+                onchain_lookup[p['wallet_address'].lower()] = p
+                
+        except Exception as e:
+            print(f"⚠️ Error getting blockchain data: {e}")
+            onchain_lookup = {}
+        
+        # Build enriched participant list
         enriched_participants = []
         
-        for participant in onchain_participants:
-            wallet_address = participant['wallet_address']
+        for db_participant in db_participants:
+            wallet_address = db_participant[0]
             
-            # Get additional details from database
-            db_details = get_participant_details_from_db(wallet_address, event_id)
+            # Get blockchain data if available
+            blockchain_data = onchain_lookup.get(wallet_address.lower(), {})
             
             enriched_participant = {
                 "wallet_address": wallet_address,
-                "event_id": participant['event_id'],
-                "poa_token_id": participant['poa_token_id'],
-                "poa_minted": participant['poa_minted'],
-                "certificate_token_id": participant['certificate_token_id'],
-                "certificate_minted": participant['certificate_minted'],
-                "certificate_ipfs": participant['certificate_ipfs'],
-                "name": db_details['name'] if db_details else 'Unknown',
-                "email": db_details['email'] if db_details else 'Unknown',
-                "team_name": db_details['team_name'] if db_details else None
+                "event_id": event_id,
+                "name": db_participant[1] or 'Unknown',
+                "email": db_participant[2] or 'Unknown',
+                "team_name": db_participant[3],
+                "poa_status": db_participant[4] or 'registered',
+                "poa_token_id": db_participant[5] or blockchain_data.get('poa_token_id'),
+                "poa_minted_at": db_participant[6],
+                "poa_transferred_at": db_participant[7],
+                "poa_minted": blockchain_data.get('poa_minted', False),
+                "certificate_status": db_participant[8] or 'not_eligible',
+                "certificate_token_id": db_participant[9] or blockchain_data.get('certificate_token_id'),
+                "certificate_minted_at": db_participant[10],
+                "certificate_transferred_at": db_participant[11],
+                "certificate_minted": blockchain_data.get('certificate_minted', False),
+                "certificate_ipfs": db_participant[12] or blockchain_data.get('certificate_ipfs')
             }
             
             enriched_participants.append(enriched_participant)
@@ -1105,37 +1424,64 @@ async def get_participant_status(wallet_address: str):
         
         # Get all PoA events for this wallet using getLogs
         poa_events = contract.events.PoAMinted.get_logs(
-            from_block=0,
-            to_block='latest',
+            fromBlock=0,
+            toBlock='latest',
             argument_filters={'recipient': wallet_address}
         )
         
         # Get all Certificate events for this wallet using getLogs  
         cert_events = contract.events.CertificateMinted.get_logs(
-            from_block=0,
-            to_block='latest',
+            fromBlock=0,
+            toBlock='latest',
             argument_filters={'recipient': wallet_address}
         )
         
-        # Build status for each event
+        # Get database status for all events this wallet is registered for
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute(
+                """SELECT event_id, poa_status, poa_token_id, poa_minted_at, poa_transferred_at,
+                          certificate_status, certificate_token_id, certificate_minted_at, certificate_transferred_at
+                   FROM participants WHERE LOWER(wallet_address) = ?""",
+                (wallet_address.lower(),)
+            )
+            db_results = cursor.fetchall()
+        finally:
+            conn.close()
+        
+        # Build comprehensive status for each event
         events_status = {}
         
+        # Add database status
+        for row in db_results:
+            event_id = row[0]
+            events_status[event_id] = {
+                'poa_status': row[1],
+                'poa_token_id': row[2],
+                'poa_minted_at': row[3],
+                'poa_transferred_at': row[4],
+                'certificate_status': row[5],
+                'certificate_token_id': row[6],
+                'certificate_minted_at': row[7],
+                'certificate_transferred_at': row[8],
+                'poa_minted': False,  # Will be updated from blockchain
+                'certificate_minted': False  # Will be updated from blockchain
+            }
+        
+        # Update with blockchain status
         for event in poa_events:
             event_id = event['args']['eventId']
             token_id = event['args']['tokenId']
-            events_status[event_id] = {
-                'poa_minted': True,
-                'poa_token_id': token_id,
-                'certificate_minted': False,
-                'certificate_token_id': None
-            }
+            if event_id in events_status:
+                events_status[event_id]['poa_minted'] = True
         
         for event in cert_events:
             event_id = event['args']['eventId']
             token_id = event['args']['tokenId']
             if event_id in events_status:
                 events_status[event_id]['certificate_minted'] = True
-                events_status[event_id]['certificate_token_id'] = token_id
         
         return {
             "wallet_address": wallet_address,

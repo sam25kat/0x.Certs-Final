@@ -9,7 +9,8 @@
       "Bash(python -m pip install:*)",
       "Bash(python:*)",
       "Bash(curl:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []
