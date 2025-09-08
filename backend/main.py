@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from web3 import Web3
 from PIL import Image, ImageDraw, ImageFont
+from bulk_certificate_processor import BulkCertificateProcessor
 
 load_dotenv()
 
@@ -440,7 +441,7 @@ def get_onchain_participants(event_id: int = None):
             toBlock='latest'
         )
         
-        print(f"🔍 Found {len(poa_events)} PoA events and {len(cert_events)} certificate events")
+        print(f"Found {len(poa_events)} PoA events and {len(cert_events)} certificate events")
         
         # Process participants
         participants = {}
@@ -654,7 +655,7 @@ async def create_event(event: EventCreate, organizer_id: int = 1):
 @app.post("/register_participant")
 async def register_participant(participant: ParticipantRegister):
     """Register a participant and mint PoA NFT"""
-    print(f"🔍 Registration attempt: {participant.wallet_address} for event code: {participant.event_code}")
+    print(f"Registration attempt: {participant.wallet_address} for event code: {participant.event_code}")
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -668,11 +669,11 @@ async def register_participant(participant: ParticipantRegister):
         event = cursor.fetchone()
         
         if not event:
-            print(f"❌ Invalid event code: {participant.event_code}")
+            print(f"Invalid event code: {participant.event_code}")
             raise HTTPException(status_code=404, detail=f"Invalid event code: {participant.event_code}")
         
         event_id, event_name = event
-        print(f"✅ Found event: {event_name} (ID: {event_id})")
+        print(f"Found event: {event_name} (ID: {event_id})")
         
         # Check if participant already registered
         cursor.execute(
@@ -703,12 +704,12 @@ async def register_participant(participant: ParticipantRegister):
         )
         
         participant_id = cursor.lastrowid
-        print(f"✅ Participant registered with ID: {participant_id}")
+        print(f"Participant registered with ID: {participant_id}")
         
         # Just save participant registration - NFT minting will happen on frontend
         conn.commit()
         
-        print(f"✅ Participant registered successfully - ready for NFT minting")
+        print(f"Participant registered successfully - ready for NFT minting")
         return {
             "message": "Registration successful - please mint PoA NFT",
             "participant_id": participant_id,
@@ -745,7 +746,7 @@ async def confirm_poa_mint(request: dict):
             
         conn.commit()
         
-        print(f"✅ PoA mint confirmed for {wallet_address} - TX: {tx_hash}")
+        print(f"PoA mint confirmed for {wallet_address} - TX: {tx_hash}")
         return {
             "message": "PoA NFT mint confirmed",
             "tx_hash": tx_hash
@@ -841,7 +842,7 @@ async def confirm_bulk_mint_poa(request: dict):
         
         conn.commit()
         
-        print(f"✅ Bulk PoA mint confirmed for {len(participants)} participants - TX: {tx_hash}")
+        print(f"Bulk PoA mint confirmed for {len(participants)} participants - TX: {tx_hash}")
         return {
             "message": f"Bulk PoA NFT mint confirmed for {len(participants)} participants",
             "tx_hash": tx_hash,
@@ -911,7 +912,7 @@ async def batch_transfer_poa(event_id: int, request: dict):
                 recipients.append(checksum_address)
                 token_ids.append(token_id)
             except Exception as e:
-                print(f"⚠️ Invalid wallet address {wallet_address}: {e}")
+                print(f"Warning: Invalid wallet address {wallet_address}: {e}")
                 continue
         
         print(f"🔄 Batch transfer for event {event_id}:")
@@ -953,7 +954,7 @@ async def confirm_batch_transfer_poa(request: dict):
         updated_count = cursor.rowcount
         conn.commit()
         
-        print(f"✅ Batch PoA transfer confirmed for {updated_count} participants - TX: {tx_hash}")
+        print(f"Batch PoA transfer confirmed for {updated_count} participants - TX: {tx_hash}")
         return {
             "message": f"Batch PoA NFT transfer confirmed for {updated_count} participants",
             "tx_hash": tx_hash,
@@ -1184,7 +1185,7 @@ async def get_events():
 @app.get("/participants/{event_id}")
 async def get_participants(event_id: int):
     """Get all participants for an event from database with blockchain enrichment"""
-    print(f"🔍 Getting participants for event ID: {event_id}")
+    print(f"Getting participants for event ID: {event_id}")
     
     try:
         # Start with all database participants (including those who are just registered)
@@ -1201,12 +1202,12 @@ async def get_participants(event_id: int):
         db_participants = cursor.fetchall()
         conn.close()
         
-        print(f"📊 Found {len(db_participants)} participants in database")
+        print(f"Found {len(db_participants)} participants in database")
         
         # Get blockchain data for enrichment
         try:
             onchain_participants = get_onchain_participants(event_id)
-            print(f"📡 Found {len(onchain_participants)} on-chain participants")
+            print(f"Found {len(onchain_participants)} on-chain participants")
             
             # Create a lookup dict for blockchain data
             onchain_lookup = {}
@@ -1214,7 +1215,7 @@ async def get_participants(event_id: int):
                 onchain_lookup[p['wallet_address'].lower()] = p
                 
         except Exception as e:
-            print(f"⚠️ Error getting blockchain data: {e}")
+            print(f"Warning: Error getting blockchain data: {e}")
             onchain_lookup = {}
         
         # Build enriched participant list
@@ -1247,11 +1248,11 @@ async def get_participants(event_id: int):
             
             enriched_participants.append(enriched_participant)
         
-        print(f"✅ Returning {len(enriched_participants)} enriched participants")
+        print(f"Returning {len(enriched_participants)} enriched participants")
         return {"participants": enriched_participants}
         
     except Exception as e:
-        print(f"❌ Error getting participants: {e}")
+        print(f"Error getting participants: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching participants: {str(e)}")
 
 @app.get("/participants/onchain/{event_id}")
@@ -1417,7 +1418,7 @@ async def get_participant_status(wallet_address: str):
         
         # Convert wallet address to checksum format
         wallet_address = w3.to_checksum_address(wallet_address)
-        print(f"🔍 Getting participant status for (checksum): {wallet_address}")
+        print(f"Getting participant status for (checksum): {wallet_address}")
             
         # Get all PoA events for this wallet
         contract = w3.eth.contract(address=CONTRACT_ADDRESS, abi=CONTRACT_ABI)
@@ -1499,6 +1500,85 @@ async def get_config():
         "rpc_url": RPC_URL if RPC_URL and "localhost" in RPC_URL else "http://127.0.0.1:8545",
         "chain_id": 31337
     }
+
+@app.post("/bulk_generate_certificates/{event_id}")
+async def bulk_generate_certificates(event_id: int):
+    """Generate and mint certificates for all PoA holders of an event"""
+    try:
+        processor = BulkCertificateProcessor()
+        result = processor.process_bulk_certificates(event_id)
+        
+        if result["success"]:
+            return {
+                "message": "Bulk certificate processing completed successfully",
+                "summary": result["summary"],
+                "details": result.get("certificate_results", []),
+                "email_results": result.get("email_results", [])
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bulk certificate processing failed: {str(e)}")
+
+@app.post("/test_certificate_generation")
+async def test_certificate_generation():
+    """Test certificate generation with sample data"""
+    try:
+        from certificate_generator import CertificateGenerator
+        generator = CertificateGenerator()
+        
+        result = generator.generate_certificate(
+            participant_name="Test Participant",
+            event_name="Test Event",
+            event_date="January 15, 2025",
+            participant_email="test@example.com"
+        )
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Test certificate generation failed: {str(e)}")
+
+@app.get("/certificate_status/{event_id}")
+async def get_certificate_status(event_id: int):
+    """Get certificate generation status for an event"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Get event details
+        cursor.execute("SELECT event_name FROM events WHERE id = ?", (event_id,))
+        event = cursor.fetchone()
+        
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+        
+        # Get certificate statistics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_participants,
+                COUNT(CASE WHEN poa_status = 'transferred' THEN 1 END) as poa_holders,
+                COUNT(CASE WHEN certificate_status = 'completed' THEN 1 END) as certificates_minted,
+                COUNT(CASE WHEN certificate_status = 'pending' THEN 1 END) as certificates_pending
+            FROM participants 
+            WHERE event_id = ?
+        """, (event_id,))
+        
+        stats = cursor.fetchone()
+        
+        return {
+            "event_id": event_id,
+            "event_name": event[0],
+            "total_participants": stats[0],
+            "poa_holders": stats[1],
+            "certificates_minted": stats[2],
+            "certificates_pending": stats[3],
+            "ready_for_bulk_generation": stats[1] > 0 and stats[2] == 0
+        }
+        
+    finally:
+        conn.close()
 
 @app.get("/health")
 async def health_check():

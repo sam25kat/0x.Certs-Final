@@ -87,8 +87,8 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
         }
     }
     
-    function mintCertificate(address recipient, uint256 eventId, string memory ipfsHash) external onlyOwner {
-        require(hasPoAForEvent[recipient][eventId], "Must have PoA for this event first");
+    function mintCertificate(address recipient, uint256 eventId, string memory ipfsHash) external {
+        require(_hasPoAForEvent(recipient, eventId), "Must have PoA for this event first");
         require(bytes(eventNames[eventId]).length > 0, "Event does not exist");
         
         uint256 tokenId = _tokenIdCounter.current();
@@ -109,6 +109,19 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
         require(_exists(tokenId), "Token does not exist");
         string memory uri = string(abi.encodePacked("ipfs://", ipfsHash));
         _setTokenURI(tokenId, uri);
+    }
+    
+    function _hasPoAForEvent(address user, uint256 eventId) internal view returns (bool) {
+        // Check if user currently owns a PoA token for this event
+        uint256 tokenCount = balanceOf(user);
+        if (tokenCount == 0) return false;
+        
+        for (uint256 i = 0; i < _tokenIdCounter.current(); i++) {
+            if (_exists(i) && ownerOf(i) == user && isPoA[i] && tokenToEventId[i] == eventId) {
+                return true;
+            }
+        }
+        return false;
     }
     
     function getTokensByOwner(address owner) external view returns (uint256[] memory) {

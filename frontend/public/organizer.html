@@ -546,6 +546,12 @@
                                         <button class="btn btn-warning" onclick="batchTransferPoA(${event.id})" id="batch-transfer-${event.id}">
                                             📤 Batch Transfer
                                         </button>
+                                        <button class="btn btn-success" onclick="generateCertificates(${event.id})" id="generate-certificates-${event.id}">
+                                            📜 Generate Certificates
+                                        </button>
+                                        <button class="btn btn-info" onclick="checkCertificateStatus(${event.id})" id="certificate-status-${event.id}">
+                                            📊 Certificate Status
+                                        </button>
                                     </div>
                                 </div>
                                 <div id="participants-table-${event.id}">Loading...</div>
@@ -898,6 +904,71 @@
                 } else {
                     showStatus('error', `❌ Batch transfer failed: ${error.reason || error.message}`);
                 }
+            }
+        }
+
+        // Certificate Generation Functions
+        async function generateCertificates(eventId) {
+            try {
+                showStatus('loading', 'Generating certificates for all PoA holders...');
+                
+                // Call the bulk certificate generation endpoint
+                const response = await fetch(`${API_BASE}/bulk_generate_certificates/${eventId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    showStatus('error', result.detail || 'Failed to generate certificates');
+                    return;
+                }
+
+                const summary = result.summary;
+                showStatus('success', 
+                    `🎉 Certificate generation completed!\n\n` +
+                    `📊 Summary:\n` +
+                    `• Total participants: ${summary.total_participants}\n` +
+                    `• Certificates generated: ${summary.successful_certificates}\n` +
+                    `• Emails sent: ${summary.successful_emails}\n` +
+                    `• Failed operations: ${summary.failed_operations}\n\n` +
+                    `✅ All certificate NFTs have been minted and emailed to participants!`
+                );
+                
+                // Refresh participant list to show updated status
+                await viewParticipants(eventId);
+                
+            } catch (error) {
+                console.error('Certificate generation error:', error);
+                showStatus('error', `❌ Certificate generation failed: ${error.message}`);
+            }
+        }
+
+        async function checkCertificateStatus(eventId) {
+            try {
+                showStatus('loading', 'Checking certificate status...');
+                
+                const response = await fetch(`${API_BASE}/certificate_status/${eventId}`);
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    showStatus('error', result.detail || 'Failed to check certificate status');
+                    return;
+                }
+
+                showStatus('info', 
+                    `📋 Certificate Status for "${result.event_name}":\n\n` +
+                    `• Total participants: ${result.total_participants}\n` +
+                    `• PoA holders: ${result.poa_holders}\n` +
+                    `• Certificates minted: ${result.certificates_minted}\n` +
+                    `• Certificates pending: ${result.certificates_pending}\n\n` +
+                    `${result.ready_for_bulk_generation ? '✅ Ready for bulk certificate generation!' : '⚠️ Not ready - participants need PoA tokens first'}`
+                );
+                
+            } catch (error) {
+                console.error('Certificate status error:', error);
+                showStatus('error', `❌ Failed to check certificate status: ${error.message}`);
             }
         }
     </script>

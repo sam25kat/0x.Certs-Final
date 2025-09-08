@@ -140,7 +140,13 @@ const OrganizerDashboard: React.FC = () => {
     try {
       setLoading(prev => ({...prev, [`participants-${eventId}`]: true}));
       
-      const response = await fetch(`${API_BASE}/participants/${eventId}`);
+      // Add cache-busting parameter to ensure fresh data
+      const response = await fetch(`${API_BASE}/participants/${eventId}?t=${Date.now()}`, {
+        cache: 'no-cache',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
       if (response.ok) {
         const data = await response.json();
         setParticipants(prev => ({...prev, [eventId]: data.participants}));
@@ -431,7 +437,7 @@ const OrganizerDashboard: React.FC = () => {
     const registered = eventParticipants.filter(p => p.poa_status === 'registered').length;
     const minted = eventParticipants.filter(p => p.poa_status === 'minted').length;
     const transferred = eventParticipants.filter(p => p.poa_status === 'transferred').length;
-    const certificates = eventParticipants.filter(p => p.certificate_minted).length;
+    const certificates = eventParticipants.filter(p => p.certificate_status === 'completed' || p.certificate_status === 'transferred').length;
 
     return (
       <div>
@@ -486,10 +492,12 @@ const OrganizerDashboard: React.FC = () => {
                       return <span style={{ background: '#f8f9fa', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>⏳ Not Eligible</span>;
                     case 'eligible':
                       return <span style={{ background: '#fff3cd', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>🎯 Eligible</span>;
+                    case 'completed':
+                      return <span style={{ background: '#d1ecf1', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>✅ Completed #{participant.certificate_token_id}</span>;
                     case 'transferred':
                       return <span style={{ background: '#d4edda', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>🏆 Transferred #{participant.certificate_token_id}</span>;
                     default:
-                      return <span style={{ background: '#f8d7da', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>❓ Unknown</span>;
+                      return <span style={{ background: '#f8d7da', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>❓ Unknown: {participant.certificate_status}</span>;
                   }
                 };
 
@@ -513,6 +521,92 @@ const OrganizerDashboard: React.FC = () => {
         </div>
       </div>
     );
+  };
+
+  // Certificate Management Functions
+  const handleGenerateCertificates = async (eventId: number) => {
+    try {
+      setLoading(prev => ({ ...prev, [`cert-${eventId}`]: true }));
+      showStatus('loading', 'Generating certificates for all PoA holders...');
+      
+      const response = await fetch(`${API_BASE}/bulk_generate_certificates/${eventId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to generate certificates');
+      }
+
+      const summary = result.summary;
+      
+      // Check if there were any failures
+      if (summary.failed_operations > 0) {
+        const failureDetails = result.details?.filter((d: any) => !d.success) || [];
+        const failureMessages = failureDetails.map((d: any) => `• ${d.participant}: ${d.step} failed - ${d.error}`).join('\n');
+        
+        showStatus('warning', 
+          `⚠️ Certificate generation completed with some issues:\n\n` +
+          `📊 Summary:\n` +
+          `• Total participants: ${summary.total_participants}\n` +
+          `• Certificates generated: ${summary.successful_certificates}\n` +
+          `• Emails sent: ${summary.successful_emails}\n` +
+          `• Failed operations: ${summary.failed_operations}\n\n` +
+          `❌ Failures:\n${failureMessages}\n\n` +
+          `ℹ️ This is likely due to blockchain connection issues. Participants still received certificates via email if email service is working.`
+        );
+      } else {
+        showStatus('success', 
+          `🎉 Certificate generation completed successfully!\n\n` +
+          `📊 Summary:\n` +
+          `• Total participants: ${summary.total_participants}\n` +
+          `• Certificates generated: ${summary.successful_certificates}\n` +
+          `• Emails sent: ${summary.successful_emails}\n` +
+          `• Failed operations: ${summary.failed_operations}\n\n` +
+          `✅ All certificate NFTs have been minted and emailed to participants!`
+        );
+      }
+      
+      // Refresh participant list to show updated status
+      await loadParticipants(eventId);
+      
+    } catch (error) {
+      console.error('Certificate generation error:', error);
+      showStatus('error', `❌ Certificate generation failed: ${(error as Error)?.message || String(error)}`);
+    } finally {
+      setLoading(prev => ({ ...prev, [`cert-${eventId}`]: false }));
+    }
+  };
+
+  const handleCheckCertificateStatus = async (eventId: number) => {
+    try {
+      setLoading(prev => ({ ...prev, [`status-${eventId}`]: true }));
+      showStatus('loading', 'Checking certificate status...');
+      
+      const response = await fetch(`${API_BASE}/certificate_status/${eventId}`);
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to check certificate status');
+      }
+
+      showStatus('info', 
+        `📋 Certificate Status for "${result.event_name}":\n\n` +
+        `• Total participants: ${result.total_participants}\n` +
+        `• PoA holders: ${result.poa_holders}\n` +
+        `• Certificates minted: ${result.certificates_minted}\n` +
+        `• Certificates pending: ${result.certificates_pending}\n\n` +
+        `${result.ready_for_bulk_generation ? '✅ Ready for bulk certificate generation!' : '⚠️ Not ready - participants need PoA tokens first'}`
+      );
+      
+    } catch (error) {
+      console.error('Certificate status error:', error);
+      showStatus('error', `❌ Failed to check certificate status: ${(error as Error)?.message || String(error)}`);
+    } finally {
+      setLoading(prev => ({ ...prev, [`status-${eventId}`]: false }));
+    }
   };
 
   return (
@@ -840,6 +934,38 @@ const OrganizerDashboard: React.FC = () => {
                                 }}
                               >
                                 📤 Batch Transfer
+                              </button>
+                              <button
+                                onClick={() => handleGenerateCertificates(event.id)}
+                                disabled={loading[`cert-${event.id}`]}
+                                style={{
+                                  background: '#28a745',
+                                  color: 'white',
+                                  border: 'none',
+                                  padding: '6px 12px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.8rem',
+                                  cursor: 'pointer',
+                                  opacity: loading[`cert-${event.id}`] ? 0.6 : 1
+                                }}
+                              >
+                                {loading[`cert-${event.id}`] ? '⏳ Generating...' : '📜 Generate Certificates'}
+                              </button>
+                              <button
+                                onClick={() => handleCheckCertificateStatus(event.id)}
+                                disabled={loading[`status-${event.id}`]}
+                                style={{
+                                  background: '#17a2b8',
+                                  color: 'white',
+                                  border: 'none',
+                                  padding: '6px 12px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.8rem',
+                                  cursor: 'pointer',
+                                  opacity: loading[`status-${event.id}`] ? 0.6 : 1
+                                }}
+                              >
+                                {loading[`status-${event.id}`] ? '⏳ Checking...' : '📊 Certificate Status'}
                               </button>
                             </div>
                           </div>

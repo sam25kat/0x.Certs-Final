@@ -10,7 +10,9 @@
       "Bash(python:*)",
       "Bash(curl:*)",
       "Bash(taskkill:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(pip install:*)",
+      "Bash(sqlite3:*)"
     ],
     "deny": [],
     "ask": []
