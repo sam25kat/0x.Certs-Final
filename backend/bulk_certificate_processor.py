@@ -115,9 +115,14 @@ class BulkCertificateProcessor:
             token_id = None
             for log in tx_receipt.logs:
                 try:
-                    # Look for CertificateMinted event
-                    if len(log.topics) >= 4:
-                        token_id = int(log.topics[2].hex(), 16)
+                    # Look for Transfer event (ERC721 standard)
+                    # Topic 0: Transfer event signature
+                    # Topic 1: from address (0x0 for minting)
+                    # Topic 2: to address (recipient)
+                    # Topic 3: token ID
+                    if (len(log.topics) >= 4 and 
+                        log.topics[0].hex() == '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'):
+                        token_id = int(log.topics[3].hex(), 16)
                         break
                 except:
                     continue
@@ -226,7 +231,7 @@ class BulkCertificateProcessor:
                 mint_result = self.mint_certificate_nft(
                     participant['wallet_address'],
                     event_id,
-                    ipfs_result['image_hash']
+                    ipfs_result['metadata_hash']
                 )
                 
                 if not mint_result['success']:

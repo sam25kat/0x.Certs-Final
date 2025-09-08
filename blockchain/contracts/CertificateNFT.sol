@@ -99,7 +99,8 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
         isPoA[tokenId] = false;
         tokenToEventId[tokenId] = eventId;
         
-        string memory uri = string(abi.encodePacked("ipfs://", ipfsHash));
+        // Use full HTTPS URL for better wallet compatibility
+        string memory uri = string(abi.encodePacked("https://gateway.pinata.cloud/ipfs/", ipfsHash));
         _setTokenURI(tokenId, uri);
         
         emit CertificateMinted(recipient, tokenId, eventId, ipfsHash);
@@ -107,7 +108,7 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
     
     function updateMetadata(uint256 tokenId, string memory ipfsHash) external onlyOwner {
         require(_exists(tokenId), "Token does not exist");
-        string memory uri = string(abi.encodePacked("ipfs://", ipfsHash));
+        string memory uri = string(abi.encodePacked("https://gateway.pinata.cloud/ipfs/", ipfsHash));
         _setTokenURI(tokenId, uri);
     }
     

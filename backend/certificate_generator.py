@@ -168,8 +168,8 @@ class CertificateGenerator:
                     
                     # Create NFT metadata
                     nft_metadata = {
-                        "name": f"{metadata['participant_name']} - {metadata['event_name']} Certificate",
-                        "description": f"Certificate of participation for {metadata['event_name']} event",
+                        "name": f"{metadata['event_name']} - Participation Certificate",
+                        "description": f"Certificate of participation for {metadata['event_name']} event issued to {metadata['participant_name']}",
                         "image": image_url,
                         "attributes": [
                             {"trait_type": "Type", "value": "Certificate"},
