@@ -40,7 +40,7 @@ const HackerDashboard: React.FC = () => {
   const [telegramVerified, setTelegramVerified] = useState(false);
   const [telegramVerifying, setTelegramVerifying] = useState(false);
 
-  const API_BASE = 'http://localhost:8003';
+  const API_BASE = 'http://localhost:8000';
 
   // Load user NFT status when wallet connects
   useEffect(() => {

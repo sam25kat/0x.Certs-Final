@@ -45,7 +45,7 @@ const OrganizerDashboard: React.FC = () => {
     description: ''
   });
 
-  const API_BASE = 'http://localhost:8003';
+  const API_BASE = 'http://localhost:8000';
 
   // Bulk mint hook
   const { 
