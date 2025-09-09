@@ -106,7 +106,7 @@ class BulkCertificateProcessor:
             signed_txn = self.w3.eth.account.sign_transaction(transaction, private_key=self.private_key)
             
             # Send transaction
-            tx_hash = self.w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_txn.rawTransaction)
             
             # Wait for confirmation
             tx_receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
@@ -128,7 +128,7 @@ class BulkCertificateProcessor:
                         print(f"✅ Extracted token ID from Transfer event: {token_id}")
                         break
                 except Exception as e:
-                    print(f"❌ Failed to extract token ID from log: {e}")
+                    print(f"Failed to extract token ID from log: {e}")
                     continue
             
             # If Transfer event extraction failed, try CertificateMinted event
@@ -147,7 +147,7 @@ class BulkCertificateProcessor:
                                     print(f"✅ Extracted token ID from event data: {token_id}")
                                     break
                     except Exception as e:
-                        print(f"❌ Failed to extract token ID from event data: {e}")
+                        print(f"Failed to extract token ID from event data: {e}")
                         continue
             
             # If all extraction methods failed, this is an error

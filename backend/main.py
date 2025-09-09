@@ -433,7 +433,7 @@ def mint_poa_nft(wallet_address: str, event_id: int):
         
         # Sign and send transaction
         signed_txn = w3.eth.account.sign_transaction(transaction, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
         
         # Wait for transaction receipt
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
@@ -455,14 +455,14 @@ def get_onchain_participants(event_id: int = None):
         
         # Get PoA minted events using get_logs
         poa_events = contract.events.PoAMinted.get_logs(
-            from_block=0,
-            to_block='latest'
+            fromBlock=0,
+            toBlock='latest'
         )
         
         # Get Certificate minted events using get_logs
         cert_events = contract.events.CertificateMinted.get_logs(
-            from_block=0,
-            to_block='latest'
+            fromBlock=0,
+            toBlock='latest'
         )
         
         print(f"Found {len(poa_events)} PoA events and {len(cert_events)} certificate events")
@@ -635,7 +635,7 @@ def mint_certificate_nft(wallet_address: str, event_id: int, ipfs_hash: str):
         
         # Sign and send transaction
         signed_txn = w3.eth.account.sign_transaction(transaction, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
         
         # Wait for transaction receipt
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
@@ -657,7 +657,7 @@ def mint_certificate_nft(wallet_address: str, event_id: int, ipfs_hash: str):
                     print(f"✅ Extracted token ID from Transfer event: {token_id}")
                     break
             except Exception as e:
-                print(f"❌ Failed to extract token ID from log: {e}")
+                print(f"Failed to extract token ID from log: {e}")
                 continue
         
         # If Transfer event extraction failed, try CertificateMinted event
@@ -676,7 +676,7 @@ def mint_certificate_nft(wallet_address: str, event_id: int, ipfs_hash: str):
                                 print(f"✅ Extracted token ID from event data: {token_id}")
                                 break
                 except Exception as e:
-                    print(f"❌ Failed to extract token ID from event data: {e}")
+                    print(f"Failed to extract token ID from event data: {e}")
                     continue
         
         print(f"Certificate NFT minted successfully. TX: {receipt.transactionHash.hex()}, Token ID: {token_id}")
@@ -876,7 +876,7 @@ async def create_event(event: EventCreate, organizer_id: int = 1):
                 })
                 
                 signed_txn = w3.eth.account.sign_transaction(transaction, PRIVATE_KEY)
-                tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
+                tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
                 
                 # Wait for confirmation
                 receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
@@ -1952,15 +1952,15 @@ async def get_participant_status(wallet_address: str):
         
         # Get all PoA events for this wallet using getLogs
         poa_events = contract.events.PoAMinted.get_logs(
-            from_block=0,
-            to_block='latest',
+            fromBlock=0,
+            toBlock='latest',
             argument_filters={'recipient': wallet_address}
         )
         
         # Get all Certificate events for this wallet using getLogs  
         cert_events = contract.events.CertificateMinted.get_logs(
-            from_block=0,
-            to_block='latest',
+            fromBlock=0,
+            toBlock='latest',
             argument_filters={'recipient': wallet_address}
         )
         

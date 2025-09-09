@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 
 async function main() {
     const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
-    const contractAddress = "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6";
+    const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
     
     const contractABI = [
         "function eventNames(uint256) external view returns (string memory)",
@@ -14,7 +14,7 @@ async function main() {
     const signer = new ethers.Wallet(privateKey, provider);
     const contract = new ethers.Contract(contractAddress, contractABI, signer);
     
-    const eventId = 5467;
+    const eventId = 5203;
     const testRecipients = ["0xFaBB0e2ccF4b7d19fB4d87e01B0Ee2F1DF62694a"];
     
     console.log("Contract address:", contractAddress);
