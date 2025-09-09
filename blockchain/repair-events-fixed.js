@@ -1,0 +1,64 @@
+import { ethers } from "ethers";
+
+async function repairEvents() {
+    const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
+    const privateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    const signer = new ethers.Wallet(privateKey, provider);
+    
+    const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+    const contractABI = [
+        "function createEvent(uint256 eventId, string memory eventName) external",
+        "function eventNames(uint256) external view returns (string memory)"
+    ];
+    
+    const contract = new ethers.Contract(contractAddress, contractABI, signer);
+    
+    // Events from your database
+    const events = [
+        { id: 5467, name: "newtest" },
+        { id: 8770, name: "C'mon Bitch" },
+        { id: 1026, name: "faaaak" },
+        { id: 1415, name: "Leverage2" },
+        { id: 1763, name: "C'mon bitch P-3" },
+        { id: 2411, name: "C'mon bitch P-2" },
+    ];
+    
+    console.log("Starting event repair with proper nonce handling...");
+    
+    for (const event of events) {
+        try {
+            // Check if event exists
+            const existingName = await contract.eventNames(event.id);
+            
+            if (existingName && existingName.length > 0) {
+                console.log(`✓ Event ${event.id} already exists: ${existingName}`);
+                continue;
+            }
+            
+            // Create the event
+            console.log(`Creating event ${event.id}: ${event.name}`);
+            
+            // Get current nonce
+            const nonce = await provider.getTransactionCount(signer.address, 'pending');
+            
+            const tx = await contract.createEvent(event.id, event.name, {
+                gasLimit: 100000,
+                gasPrice: ethers.parseUnits("1", "gwei"),
+                nonce: nonce
+            });
+            
+            const receipt = await tx.wait();
+            console.log(`✅ Event ${event.id} created successfully - TX: ${tx.hash}`);
+            
+            // Small delay to prevent nonce conflicts
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+        } catch (error) {
+            console.error(`❌ Failed to create event ${event.id}: ${error.message}`);
+        }
+    }
+    
+    console.log("Event repair completed!");
+}
+
+repairEvents().catch(console.error);

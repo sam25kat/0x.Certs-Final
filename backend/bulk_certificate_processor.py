@@ -106,13 +106,15 @@ class BulkCertificateProcessor:
             signed_txn = self.w3.eth.account.sign_transaction(transaction, private_key=self.private_key)
             
             # Send transaction
-            tx_hash = self.w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_txn.raw_transaction)
             
             # Wait for confirmation
             tx_receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
             
             # Extract token ID from transaction logs
             token_id = None
+            
+            # First try to extract from Transfer event (ERC721 standard)
             for log in tx_receipt.logs:
                 try:
                     # Look for Transfer event (ERC721 standard)
@@ -123,14 +125,42 @@ class BulkCertificateProcessor:
                     if (len(log.topics) >= 4 and 
                         log.topics[0].hex() == '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'):
                         token_id = int(log.topics[3].hex(), 16)
+                        print(f"✅ Extracted token ID from Transfer event: {token_id}")
                         break
-                except:
+                except Exception as e:
+                    print(f"❌ Failed to extract token ID from log: {e}")
                     continue
+            
+            # If Transfer event extraction failed, try CertificateMinted event
+            if token_id is None:
+                for log in tx_receipt.logs:
+                    try:
+                        # Look for CertificateMinted event signature
+                        # This should have the token ID in the data field or topics
+                        if log.address.lower() == self.contract_address.lower():
+                            # Try to decode the data field for token ID
+                            if len(log.data) >= 64:  # At least 32 bytes for uint256
+                                # First 32 bytes might be token ID
+                                potential_token_id = int(log.data[:66], 16)  # 0x + 64 chars
+                                if potential_token_id > 0 and potential_token_id < 1000000:  # Reasonable range
+                                    token_id = potential_token_id
+                                    print(f"✅ Extracted token ID from event data: {token_id}")
+                                    break
+                    except Exception as e:
+                        print(f"❌ Failed to extract token ID from event data: {e}")
+                        continue
+            
+            # If all extraction methods failed, this is an error
+            if token_id is None:
+                return {
+                    "success": False,
+                    "error": "Failed to extract token ID from transaction receipt. The NFT may not have been minted properly."
+                }
             
             return {
                 "success": True,
                 "tx_hash": tx_hash.hex(),
-                "token_id": token_id or 0,
+                "token_id": token_id,
                 "gas_used": tx_receipt.gasUsed
             }
             
