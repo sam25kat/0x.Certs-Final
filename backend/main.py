@@ -7,6 +7,9 @@ import smtplib
 import json
 import requests
 import base64
+import secrets
+import threading
+import time
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -46,6 +49,9 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 FROM_EMAIL = os.getenv("FROM_EMAIL")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TELEGRAM_GROUP_LINK = os.getenv("TELEGRAM_GROUP_LINK")
 
 # Web3 setup
 w3 = Web3(Web3.HTTPProvider(RPC_URL)) if RPC_URL else None
@@ -175,6 +181,20 @@ def init_db():
         )
     """)
     
+    # Create table for verified Telegram users
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS telegram_verified_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE NOT NULL,
+            username TEXT NOT NULL,
+            first_name TEXT,
+            last_name TEXT,
+            verification_token TEXT,
+            verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_checked TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
     # Add new columns to existing participants table if they don't exist
     try:
         cursor.execute("ALTER TABLE participants ADD COLUMN poa_status TEXT DEFAULT 'registered'")
@@ -240,6 +260,10 @@ class ParticipantRegister(BaseModel):
     name: str
     team_name: str
     event_code: str
+    telegram_username: str = None
+
+class TelegramVerification(BaseModel):
+    telegram_username: str
 
 # Utility functions
 def generate_event_code() -> str:
@@ -489,6 +513,71 @@ def get_onchain_participants(event_id: int = None):
         print(f"Error getting on-chain participants: {e}")
         return []
 
+def store_verified_telegram_user(user_id: int, username: str, first_name: str = None, last_name: str = None):
+    """Store verified Telegram user in database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Generate verification token
+        verification_token = secrets.token_urlsafe(32)
+        
+        # Insert or update user
+        cursor.execute("""
+            INSERT OR REPLACE INTO telegram_verified_users 
+            (user_id, username, first_name, last_name, verification_token, verified_at, last_checked)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """, (user_id, username, first_name, last_name, verification_token))
+        
+        conn.commit()
+        return verification_token
+    finally:
+        conn.close()
+
+def get_verified_telegram_user(username: str):
+    """Get verified user by username"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+            SELECT user_id, username, first_name, last_name, verification_token, verified_at
+            FROM telegram_verified_users 
+            WHERE LOWER(username) = LOWER(?) 
+            ORDER BY verified_at DESC 
+            LIMIT 1
+        """, (username,))
+        result = cursor.fetchone()
+        
+        if result:
+            return {
+                'user_id': result[0],
+                'username': result[1],
+                'first_name': result[2],
+                'last_name': result[3],
+                'verification_token': result[4],
+                'verified_at': result[5]
+            }
+        return None
+    finally:
+        conn.close()
+
+def send_telegram_message(chat_id: int, text: str):
+    """Send message to Telegram user"""
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        data = {
+            'chat_id': chat_id,
+            'text': text,
+            'parse_mode': 'HTML'
+        }
+        
+        response = requests.post(url, json=data, timeout=10)
+        return response.json()
+    except Exception as e:
+        print(f"Failed to send Telegram message: {e}")
+        return None
+
 def get_participant_details_from_db(wallet_address: str, event_id: int):
     """Get participant name/email from database"""
     conn = sqlite3.connect(DB_PATH)
@@ -558,10 +647,120 @@ def mint_certificate_nft(wallet_address: str, event_id: int, ipfs_hash: str):
         print(f"Error in mint_certificate_nft: {str(e)}")
         raise Exception(f"Failed to mint Certificate NFT: {str(e)}")
 
+# Bot polling function for background thread
+def bot_polling_thread():
+    """Background thread to continuously poll for Telegram bot updates"""
+    if not TELEGRAM_BOT_TOKEN:
+        print("No Telegram bot token configured, skipping bot polling")
+        return
+    
+    print("Starting Telegram bot polling thread...")
+    offset = 0
+    
+    while True:
+        try:
+            url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates'
+            params = {
+                'offset': offset,
+                'timeout': 30  # Long polling for efficiency
+            }
+            
+            response = requests.get(url, params=params, timeout=35)
+            result = response.json()
+            
+            if result.get('ok'):
+                updates = result.get('result', [])
+                
+                for update in updates:
+                    offset = update['update_id'] + 1
+                    
+                    if 'message' in update:
+                        message = update['message']
+                        text = message.get('text', '').strip().lower()
+                        user = message.get('from', {})
+                        chat = message.get('chat', {})
+                        
+                        # Handle /0xday command
+                        if text in ['/0xday', '/0xday@certs0xday_bot']:
+                            user_id = user.get('id')
+                            username = user.get('username', '')
+                            first_name = user.get('first_name', '')
+                            last_name = user.get('last_name', '')
+                            
+                            print(f"Processing /0xday command from user {user_id} (@{username})")
+                            
+                            # Check if user is in the group
+                            try:
+                                check_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChatMember"
+                                check_params = {
+                                    'chat_id': TELEGRAM_CHAT_ID,
+                                    'user_id': user_id
+                                }
+                                
+                                check_response = requests.get(check_url, params=check_params, timeout=10)
+                                check_result = check_response.json()
+                                
+                                if check_response.status_code == 200 and check_result.get('ok'):
+                                    member_status = check_result.get('result', {}).get('status')
+                                    
+                                    if member_status in ['member', 'administrator', 'creator']:
+                                        # User is verified! Store in database
+                                        verification_token = store_verified_telegram_user(
+                                            user_id, username, first_name, last_name
+                                        )
+                                        
+                                        response_text = "Welcome to the 0x.Day Community"
+                                        
+                                        send_telegram_message(user_id, response_text)
+                                        print(f"Successfully verified and stored user: @{username} (ID: {user_id})")
+                                        
+                                    elif member_status in ['left', 'kicked']:
+                                        response_text = f"Please join our community first: {TELEGRAM_GROUP_LINK}"
+                                        
+                                        send_telegram_message(user_id, response_text)
+                                        print(f"User @{username} not a member (status: {member_status})")
+                                        
+                                else:
+                                    error_desc = check_result.get('description', 'Unknown error')
+                                    print(f"Error checking membership for @{username}: {error_desc}")
+                                    
+                                    response_text = "Verification error. Please try again."
+                                    
+                                    send_telegram_message(user_id, response_text)
+                                    
+                            except Exception as e:
+                                print(f"Error during membership verification for @{username}: {e}")
+                                
+                                response_text = "Technical error. Please try again later."
+                                
+                                send_telegram_message(user_id, response_text)
+            
+        except requests.exceptions.Timeout:
+            print("Bot polling timeout, retrying...")
+            time.sleep(5)
+        except requests.exceptions.ConnectionError:
+            print("Bot polling connection error, retrying in 10 seconds...")
+            time.sleep(10)
+        except Exception as e:
+            print(f"Bot polling error: {e}")
+            time.sleep(10)
+
 # API endpoints
 @app.on_event("startup")
 async def startup_event():
     init_db()
+    print("Database initialized")
+    
+    # Start bot polling in background thread
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        print(f"Telegram config found - Token: {TELEGRAM_BOT_TOKEN[:10]}... Chat ID: {TELEGRAM_CHAT_ID}")
+        bot_thread = threading.Thread(target=bot_polling_thread, daemon=True)
+        bot_thread.start()
+        print("Telegram bot polling thread started successfully!")
+    else:
+        print("Telegram bot not configured, skipping polling thread")
+        print(f"TELEGRAM_BOT_TOKEN: {'Found' if TELEGRAM_BOT_TOKEN else 'Missing'}")
+        print(f"TELEGRAM_CHAT_ID: {'Found' if TELEGRAM_CHAT_ID else 'Missing'}")
 
 @app.post("/create_organizer")
 async def create_organizer(organizer: OrganizerCreate):
@@ -698,9 +897,11 @@ async def register_participant(participant: ParticipantRegister):
         print(f"📝 Registering new participant: {participant.name}")
         cursor.execute(
             """INSERT INTO participants 
-               (wallet_address, email, name, team_name, event_id) 
-               VALUES (?, ?, ?, ?, ?)""",
-            (participant.wallet_address, participant.email, participant.name, participant.team_name, event_id)
+               (wallet_address, email, name, team_name, event_id, telegram_username, telegram_verified, telegram_verified_at) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (participant.wallet_address, participant.email, participant.name, participant.team_name, event_id, 
+             participant.telegram_username, 1 if participant.telegram_username else 0, 
+             datetime.now() if participant.telegram_username else None)
         )
         
         participant_id = cursor.lastrowid
@@ -720,6 +921,247 @@ async def register_participant(participant: ParticipantRegister):
             
     finally:
         conn.close()
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(update: dict):
+    """Handle Telegram bot webhook updates"""
+    try:
+        # Check if this is a message update
+        if 'message' not in update:
+            return {"ok": True}
+        
+        message = update['message']
+        
+        # Check if message has text and is from a user (not a bot)
+        if 'text' not in message or message.get('from', {}).get('is_bot', False):
+            return {"ok": True}
+        
+        text = message['text'].strip()
+        user = message['from']
+        chat = message['chat']
+        
+        # Handle /0xday command
+        if text.lower() in ['/0xday', '/0xday@certs0xday_bot']:
+            user_id = user['id']
+            username = user.get('username', '')
+            first_name = user.get('first_name', '')
+            last_name = user.get('last_name', '')
+            
+            print(f"Processing /0xday command from user {user_id} (@{username})")
+            
+            # Handle verification in both private chat and group
+            if chat['type'] == 'private' or (chat['type'] in ['group', 'supergroup'] and chat.get('id') == int(TELEGRAM_CHAT_ID)):
+                # Verify user is actually in the group
+                try:
+                    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChatMember"
+                    params = {
+                        'chat_id': TELEGRAM_CHAT_ID,
+                        'user_id': user_id
+                    }
+                    
+                    response = requests.get(url, params=params, timeout=10)
+                    result = response.json()
+                    
+                    if response.status_code == 200 and result.get('ok'):
+                        member_status = result.get('result', {}).get('status')
+                        
+                        if member_status in ['member', 'administrator', 'creator']:
+                            # User is verified! Store in database
+                            verification_token = store_verified_telegram_user(
+                                user_id, username, first_name, last_name
+                            )
+                            
+                            response_text = f"""✅ <b>Verification Successful!</b>
+                            
+Hello {first_name}! Your Telegram account has been verified for 0x.day events.
+
+📝 <b>Your Details:</b>
+• Username: @{username}
+• Status: Verified Member
+
+🎯 <b>Next Steps:</b>
+1. Visit our event registration page
+2. Enter your username: <code>{username}</code>
+3. Complete your event registration
+
+🔒 Your verification is valid for all 0x.day events.
+💡 You can verify by messaging /0xday in the group or privately to this bot."""
+                            
+                            send_telegram_message(user_id, response_text)
+                            
+                        elif member_status in ['left', 'kicked']:
+                            response_text = f"""❌ <b>Verification Failed</b>
+                            
+Sorry {first_name}, you're not currently a member of our community.
+
+🔗 <b>Join our community first:</b>
+{TELEGRAM_GROUP_LINK}
+
+After joining, send /0xday again to verify."""
+                            
+                            send_telegram_message(user_id, response_text)
+                            
+                    else:
+                        error_desc = result.get('description', 'Unknown error')
+                        print(f"Error checking membership: {error_desc}")
+                        
+                        response_text = f"""❌ <b>Verification Error</b>
+                        
+Sorry {first_name}, there was an issue verifying your membership.
+
+Please try again in a few moments, or contact support if the issue persists."""
+                        
+                        send_telegram_message(user_id, response_text)
+                        
+                except Exception as e:
+                    print(f"Error during membership verification: {e}")
+                    
+                    response_text = f"""❌ <b>Technical Error</b>
+                    
+Sorry {first_name}, there was a technical issue.
+
+Please try again later or contact support."""
+                    
+                    send_telegram_message(user_id, response_text)
+            
+            else:
+                # Message sent in group - just acknowledge
+                response_text = f"Hi {first_name}! Please send me /0xday in a private message to verify your account."
+                send_telegram_message(user_id, response_text)
+        
+        return {"ok": True}
+        
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return {"ok": False, "error": str(e)}
+
+@app.post("/verify-telegram-membership")
+async def verify_telegram_membership(verification: TelegramVerification):
+    """Verify if a user is a member of the Telegram group using stored verification data"""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        raise HTTPException(status_code=500, detail="Telegram configuration is missing")
+    
+    telegram_username = verification.telegram_username.strip()
+    if telegram_username.startswith('@'):
+        telegram_username = telegram_username[1:]
+    
+    if not telegram_username:
+        raise HTTPException(status_code=400, detail="Telegram username is required")
+    
+    print(f"Verifying Telegram user: @{telegram_username}")
+    
+    try:
+        # Step 1: Check if user exists in our verified users database
+        verified_user = get_verified_telegram_user(telegram_username)
+        
+        if not verified_user:
+            raise HTTPException(
+                status_code=400,
+                detail=f"User @{telegram_username} not found in our verified members list. Please join our Telegram community and message /0xday in the group to verify your membership first."
+            )
+        
+        print(f"Found verified user: {verified_user['user_id']}")
+        
+        # Step 2: Double-check current membership status using stored user_id
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChatMember"
+        params = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'user_id': verified_user['user_id']
+        }
+        
+        response = requests.get(url, params=params, timeout=15)
+        result = response.json()
+        
+        if response.status_code == 200 and result.get('ok'):
+            member_status = result.get('result', {}).get('status')
+            
+            if member_status in ['member', 'administrator', 'creator']:
+                # Update last_checked timestamp
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(
+                        "UPDATE telegram_verified_users SET last_checked = CURRENT_TIMESTAMP WHERE user_id = ?",
+                        (verified_user['user_id'],)
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+                
+                print(f"Verification successful for @{telegram_username} (status: {member_status})")
+                
+                return {
+                    "verified": True,
+                    "message": "Telegram membership verified successfully",
+                    "username": telegram_username,
+                    "verified_at": verified_user['verified_at'],
+                    "member_status": member_status
+                }
+                
+            elif member_status in ['left', 'kicked']:
+                # Remove from verified users since they left
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                try:
+                    cursor.execute("DELETE FROM telegram_verified_users WHERE user_id = ?", (verified_user['user_id'],))
+                    conn.commit()
+                finally:
+                    conn.close()
+                
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"User @{telegram_username} is no longer a member of our Telegram community. Please rejoin and verify again."
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"User @{telegram_username} has status '{member_status}' in our community."
+                )
+        else:
+            error_description = result.get('description', 'Unknown error')
+            print(f"API Error checking membership: {error_description}")
+            
+            if 'user not found' in error_description.lower():
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Telegram user @{telegram_username} not found. Please check if your account still exists."
+                )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Technical error verifying membership. Please try again later."
+                )
+                
+    except requests.exceptions.Timeout:
+        print("Request timed out")
+        raise HTTPException(
+            status_code=500,
+            detail="Request to Telegram API timed out. Please try again."
+        )
+    except requests.exceptions.ConnectionError:
+        print("Connection error")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to connect to Telegram API. Please check your internet connection."
+        )
+    except requests.exceptions.RequestException as e:
+        print(f"Request exception: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to connect to Telegram API: {str(e)}"
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error during verification: {str(e)}"
+        )
 
 @app.post("/confirm_poa_mint")
 async def confirm_poa_mint(request: dict):

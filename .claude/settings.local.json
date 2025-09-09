@@ -12,7 +12,8 @@
       "Bash(taskkill:*)",
       "Bash(node:*)",
       "Bash(pip install:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(start python main.py)"
     ],
     "deny": [],
     "ask": []
