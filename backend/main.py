@@ -433,7 +433,7 @@ def mint_poa_nft(wallet_address: str, event_id: int):
         
         # Sign and send transaction
         signed_txn = w3.eth.account.sign_transaction(transaction, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
         
         # Wait for transaction receipt
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
@@ -455,14 +455,14 @@ def get_onchain_participants(event_id: int = None):
         
         # Get PoA minted events using get_logs
         poa_events = contract.events.PoAMinted.get_logs(
-            fromBlock=0,
-            toBlock='latest'
+            from_block=0,
+            to_block='latest'
         )
         
         # Get Certificate minted events using get_logs
         cert_events = contract.events.CertificateMinted.get_logs(
-            fromBlock=0,
-            toBlock='latest'
+            from_block=0,
+            to_block='latest'
         )
         
         print(f"Found {len(poa_events)} PoA events and {len(cert_events)} certificate events")
@@ -635,13 +635,57 @@ def mint_certificate_nft(wallet_address: str, event_id: int, ipfs_hash: str):
         
         # Sign and send transaction
         signed_txn = w3.eth.account.sign_transaction(transaction, PRIVATE_KEY)
-        tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+        tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
         
         # Wait for transaction receipt
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-        print(f"Certificate NFT minted successfully: {receipt}")
         
-        return tx_hash.hex()
+        # Extract token ID from transaction logs
+        token_id = None
+        
+        # First try to extract from Transfer event (ERC721 standard)
+        for log in receipt.logs:
+            try:
+                # Look for Transfer event (ERC721 standard)
+                # Topic 0: Transfer event signature
+                # Topic 1: from address (0x0 for minting)
+                # Topic 2: to address (recipient)
+                # Topic 3: token ID
+                if (len(log.topics) >= 4 and 
+                    log.topics[0].hex() == '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'):
+                    token_id = int(log.topics[3].hex(), 16)
+                    print(f"✅ Extracted token ID from Transfer event: {token_id}")
+                    break
+            except Exception as e:
+                print(f"❌ Failed to extract token ID from log: {e}")
+                continue
+        
+        # If Transfer event extraction failed, try CertificateMinted event
+        if token_id is None:
+            for log in receipt.logs:
+                try:
+                    # Look for CertificateMinted event signature
+                    # This should have the token ID in the data field or topics
+                    if log.address.lower() == CONTRACT_ADDRESS.lower():
+                        # Try to decode the data field for token ID
+                        if len(log.data) >= 64:  # At least 32 bytes for uint256
+                            # First 32 bytes might be token ID
+                            potential_token_id = int(log.data[:66], 16)  # 0x + 64 chars
+                            if potential_token_id > 0 and potential_token_id < 1000000:  # Reasonable range
+                                token_id = potential_token_id
+                                print(f"✅ Extracted token ID from event data: {token_id}")
+                                break
+                except Exception as e:
+                    print(f"❌ Failed to extract token ID from event data: {e}")
+                    continue
+        
+        print(f"Certificate NFT minted successfully. TX: {receipt.transactionHash.hex()}, Token ID: {token_id}")
+        
+        return {
+            "tx_hash": tx_hash.hex(),
+            "token_id": token_id,
+            "receipt": receipt
+        }
         
     except Exception as e:
         print(f"Error in mint_certificate_nft: {str(e)}")
@@ -832,7 +876,7 @@ async def create_event(event: EventCreate, organizer_id: int = 1):
                 })
                 
                 signed_txn = w3.eth.account.sign_transaction(transaction, PRIVATE_KEY)
-                tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+                tx_hash = w3.eth.send_raw_transaction(signed_txn.raw_transaction)
                 
                 # Wait for confirmation
                 receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
@@ -1492,14 +1536,15 @@ async def generate_certificates(event_id: int):
                 ipfs_hash = upload_to_pinata(cert_bytes, filename)
                 
                 # Mint certificate NFT
-                tx_hash = mint_certificate_nft(wallet_address, event_id, ipfs_hash)
+                mint_result = mint_certificate_nft(wallet_address, event_id, ipfs_hash)
                 
-                # Update participant record
+                # Update participant record with token ID
                 cursor.execute(
                     """UPDATE participants 
-                       SET certificate_minted = TRUE, certificate_ipfs_hash = ? 
+                       SET certificate_minted = TRUE, certificate_ipfs_hash = ?, 
+                           certificate_token_id = ?, certificate_status = 'completed'
                        WHERE id = ?""",
-                    (ipfs_hash, participant_id)
+                    (ipfs_hash, mint_result.get('token_id'), participant_id)
                 )
                 
                 successful_certificates += 1
@@ -1537,7 +1582,7 @@ async def send_emails(event_id: int):
         
         # Get participants with certificates
         cursor.execute(
-            """SELECT name, email, certificate_ipfs_hash 
+            """SELECT name, email, certificate_ipfs_hash, certificate_token_id, wallet_address
                FROM participants 
                WHERE event_id = ? AND certificate_minted = TRUE""",
             (event_id,)
@@ -1552,28 +1597,68 @@ async def send_emails(event_id: int):
         failed_emails = 0
         
         for participant in participants:
-            name, email, ipfs_hash = participant
+            name, email, ipfs_hash, token_id, wallet_address = participant
             
             try:
                 # Create email content
-                subject = f"Your {event_name} Certificate is Ready!"
+                subject = f"🎉 Your {event_name} Certificate NFT is Ready!"
                 
                 ipfs_url = f"https://gateway.pinata.cloud/ipfs/{ipfs_hash}"
                 
                 body = f"""
                 <html>
                 <body>
-                    <h2>Congratulations {name}!</h2>
+                    <h2>Congratulations {name}! 🎉</h2>
                     <p>Your certificate for <strong>{event_name}</strong> has been generated and minted as an NFT.</p>
                     
-                    <h3>Download Your Certificate:</h3>
-                    <p><a href="{ipfs_url}" target="_blank">Download Certificate (IPFS)</a></p>
+                    <h3>📜 CERTIFICATE DETAILS:</h3>
+                    <ul>
+                        <li><strong>Event:</strong> {event_name}</li>
+                        <li><strong>Participant:</strong> {name}</li>
+                        <li><strong>Certificate Type:</strong> NFT (Non-Fungible Token)</li>
+                    </ul>
                     
-                    <h3>Your Certificate NFT:</h3>
-                    <p>Your certificate has also been minted as an NFT to the same wallet address you used for registration.</p>
-                    <p>You can view it on OpenSea or any NFT marketplace that supports Sepolia testnet.</p>
+                    <h3>🔗 NFT DETAILS:</h3>
+                    <ul>
+                        <li><strong>Contract Address:</strong> {CONTRACT_ADDRESS}</li>
+                        <li><strong>Token ID:</strong> {token_id if token_id else 'Processing...'}</li>
+                        <li><strong>Your Wallet:</strong> {wallet_address}</li>
+                    </ul>
                     
-                    <p>Thank you for participating in {event_name}!</p>
+                    <h3>📱 HOW TO ADD TO YOUR WALLET:</h3>
+                    
+                    <h4>For MetaMask:</h4>
+                    <ol>
+                        <li>Open MetaMask wallet</li>
+                        <li>Go to NFTs tab</li>
+                        <li>Click "Import NFT"</li>
+                        <li>Enter Contract Address: <code>{CONTRACT_ADDRESS}</code></li>
+                        <li>Enter Token ID: <code>{token_id if token_id else 'Contact organizer'}</code></li>
+                        <li>Click "Import"</li>
+                    </ol>
+                    
+                    <h4>For other wallets:</h4>
+                    <ol>
+                        <li>Look for "Add NFT" or "Import Token" option</li>
+                        <li>Select "NFT" or "ERC-721" token type</li>
+                        <li>Enter the contract address and token ID above</li>
+                    </ol>
+                    
+                    <h3>📎 CERTIFICATE DOWNLOAD:</h3>
+                    <p><a href="{ipfs_url}" target="_blank" style="background-color: #007cba; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Download Certificate (IPFS)</a></p>
+                    
+                    <h3>🎯 WHAT'S NEXT:</h3>
+                    <ul>
+                        <li>Add the NFT to your wallet using the instructions above</li>
+                        <li>Share your achievement on social media</li>
+                        <li>Keep this certificate as proof of your participation</li>
+                    </ul>
+                    
+                    <p>Thank you for being part of {event_name}! 🚀</p>
+                    
+                    <hr>
+                    <p><small>This is an automated message. Please do not reply to this email.<br>
+                    If you need assistance, please contact the event organizers.</small></p>
                 </body>
                 </html>
                 """
@@ -1867,15 +1952,15 @@ async def get_participant_status(wallet_address: str):
         
         # Get all PoA events for this wallet using getLogs
         poa_events = contract.events.PoAMinted.get_logs(
-            fromBlock=0,
-            toBlock='latest',
+            from_block=0,
+            to_block='latest',
             argument_filters={'recipient': wallet_address}
         )
         
         # Get all Certificate events for this wallet using getLogs  
         cert_events = contract.events.CertificateMinted.get_logs(
-            fromBlock=0,
-            toBlock='latest',
+            from_block=0,
+            to_block='latest',
             argument_filters={'recipient': wallet_address}
         )
         

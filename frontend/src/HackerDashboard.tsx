@@ -235,7 +235,7 @@ const HackerDashboard: React.FC = () => {
   };
 
   const renderParticipantStatus = () => {
-    if (!participantStatus || Object.keys(participantStatus.events).length === 0) {
+    if (!participantStatus || !participantStatus.events || Object.keys(participantStatus.events).length === 0) {
       return <p>No NFTs found for your wallet address.</p>;
     }
 
