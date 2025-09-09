@@ -1,0 +1,53 @@
+Subject: 0x.Day | Your QWERTY999 NFT Certificate is Ready
+
+Dear Sameer Katte,
+
+Your certificate for participating in QWERTY999 has been minted as an NFT and is ready for you to claim.
+
+Certificate Details
+
+Event: QWERTY999
+Participant: Sameer Katte
+Certificate Type: NFT (Non-Fungible Token)
+
+NFT Information
+
+Contract Address: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+Token ID: 4
+Blockchain: Ethereum
+
+How to Add NFT to Your Wallet
+
+For MetaMask Users:
+
+1. Open your MetaMask wallet
+2. Navigate to the "NFTs" tab
+3. Click "Import NFT"
+4. Enter Contract Address: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+5. Enter Token ID: 4
+6. Click "Import"
+
+For Other Wallet Users:
+
+1. Look for "Add NFT" or "Import Token" option in your wallet
+2. Select "NFT" or "ERC-721" token type
+3. Enter the contract address and token ID provided above
+4. Follow your wallet's import process
+
+Certificate Attachment
+
+Your certificate is also attached as a JPG image for your records.
+
+Next Steps
+
+1. Add the NFT to your wallet using the instructions above
+2. Share your certificate on social media platforms
+3. Keep this certificate as proof of your participation
+
+Thank you for being part of QWERTY999.
+
+Best regards,
+The 0x.Day Team
+
+This is an automated message. Please do not reply to this email.
+For assistance or inquiries, please contact the 0x.Day team through our official channels.

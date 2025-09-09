@@ -14,7 +14,8 @@
       "Bash(pip install:*)",
       "Bash(sqlite3:*)",
       "Bash(start python main.py)",
-      "Bash(cmd /c:*)"
+      "Bash(cmd /c:*)",
+      "Bash(dir C:UsersJARVISDesktop0x.Certsbackendcertificates)"
     ],
     "deny": [],
     "ask": []

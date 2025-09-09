@@ -302,13 +302,17 @@ class BulkCertificateProcessor:
                 # Small delay to avoid overwhelming the network
                 time.sleep(2)
             
-            # Send bulk emails
-            print("Sending certificates via email...")
-            email_results = self.email_service.send_bulk_certificate_emails(
-                email_data,
-                event_details['name'],
-                self.contract_address
-            )
+            # Send bulk emails only if there's new data
+            if email_data:
+                print("Sending certificates via email...")
+                email_results = self.email_service.send_bulk_certificate_emails(
+                    email_data,
+                    event_details['name'],
+                    self.contract_address
+                )
+            else:
+                print("No new certificates to email.")
+                email_results = []
             
             successful_certs = len([r for r in results if r.get('success', False)])
             successful_emails = len([r for r in email_results if r['result']['success']])
