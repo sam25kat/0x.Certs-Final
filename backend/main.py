@@ -10,7 +10,7 @@ import base64
 import secrets
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, List
@@ -27,6 +27,86 @@ from bulk_certificate_processor import BulkCertificateProcessor
 load_dotenv()
 
 app = FastAPI(title="Hackathon Certificate API")
+
+def generate_poa_metadata(event_name, participant_name):
+    """Generate PoA NFT metadata with event name and participant name from database"""
+    return {
+        "name": f"{event_name} - Proof of Attendance",
+        "description": f"Official Proof of Attendance NFT for {event_name} event issued to {participant_name} by 0x.day",
+        "image": "https://gateway.pinata.cloud/ipfs/Qmf3vzYCg8wszTevWdqyLJLCHZaYDPpDgMkcHFqihRgKL6",
+        "external_url": "https://0x.day",
+        "issuer": "0x.day",
+        "attributes": [
+            {"trait_type": "Type", "value": "Proof of Attendance"},
+            {"trait_type": "Event", "value": event_name},
+            {"trait_type": "Participant", "value": participant_name},
+            {"trait_type": "Organization", "value": "0x.day"},
+            {"trait_type": "Purpose", "value": "Event Attendance Verification"}
+        ]
+    }
+
+def upload_poa_metadata_to_ipfs(metadata):
+    """Upload PoA metadata to IPFS via Pinata"""
+    try:
+        response = requests.post(
+            'https://api.pinata.cloud/pinning/pinJSONToIPFS',
+            headers={
+                'Content-Type': 'application/json',
+                'pinata_api_key': PINATA_API_KEY,
+                'pinata_secret_api_key': PINATA_SECRET_API_KEY
+            },
+            json={
+                'pinataContent': metadata,
+                'pinataMetadata': {
+                    'name': f"poa_metadata_{metadata['attributes'][1]['value'].replace(' ', '_')}"
+                }
+            }
+        )
+        
+        if response.status_code == 200:
+            metadata_hash = response.json()['IpfsHash']
+            return {
+                "success": True,
+                "metadata_hash": metadata_hash,
+                "metadata_url": f"https://gateway.pinata.cloud/ipfs/{metadata_hash}"
+            }
+        else:
+            print(f"Failed to upload PoA metadata to IPFS: {response.text}")
+            return {"success": False, "error": response.text}
+            
+    except Exception as e:
+        print(f"Error uploading PoA metadata to IPFS: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+def update_poa_token_metadata(token_id, metadata_hash):
+    """Update PoA token metadata using the smart contract updateMetadata function"""
+    if not all([w3, PRIVATE_KEY, CONTRACT_ADDRESS]):
+        raise Exception("Web3 not configured properly")
+    
+    try:
+        account = w3.eth.account.from_key(PRIVATE_KEY)
+        contract = w3.eth.contract(address=CONTRACT_ADDRESS, abi=CONTRACT_ABI)
+        
+        # Build transaction to update metadata
+        gas_estimate = contract.functions.updateMetadata(token_id, metadata_hash).estimate_gas({'from': account.address})
+        
+        transaction = contract.functions.updateMetadata(token_id, metadata_hash).build_transaction({
+            'chainId': w3.eth.chain_id,
+            'gas': gas_estimate + 50000,
+            'gasPrice': w3.to_wei('1', 'gwei'),
+            'nonce': w3.eth.get_transaction_count(account.address),
+        })
+        
+        signed_txn = w3.eth.account.sign_transaction(transaction, PRIVATE_KEY)
+        tx_hash = w3.eth.send_raw_transaction(signed_txn.rawTransaction)
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+        
+        print(f"Updated metadata for token {token_id}: {tx_hash.hex()}")
+        return {"success": True, "tx_hash": tx_hash.hex()}
+        
+    except Exception as e:
+        print(f"Error updating PoA token metadata: {str(e)}")
+        return {"success": False, "error": str(e)}
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,14 +145,14 @@ CONTRACT_ABI = [
         "type": "function"
     },
     {
-        "inputs": [{"internalType": "address", "name": "recipient", "type": "address"}, {"internalType": "uint256", "name": "eventId", "type": "uint256"}],
+        "inputs": [{"internalType": "address", "name": "recipient", "type": "address"}, {"internalType": "uint256", "name": "eventId", "type": "uint256"}, {"internalType": "string", "name": "ipfsHash", "type": "string"}],
         "name": "mintPoA",
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"
     },
     {
-        "inputs": [{"internalType": "address[]", "name": "recipients", "type": "address[]"}, {"internalType": "uint256", "name": "eventId", "type": "uint256"}],
+        "inputs": [{"internalType": "address[]", "name": "recipients", "type": "address[]"}, {"internalType": "uint256", "name": "eventId", "type": "uint256"}, {"internalType": "string", "name": "ipfsHash", "type": "string"}],
         "name": "bulkMintPoA",
         "outputs": [],
         "stateMutability": "nonpayable",
@@ -126,6 +206,13 @@ CONTRACT_ABI = [
         ],
         "name": "CertificateMinted",
         "type": "event"
+    },
+    {
+        "inputs": [{"internalType": "uint256", "name": "tokenId", "type": "uint256"}, {"internalType": "string", "name": "ipfsHash", "type": "string"}],
+        "name": "updateMetadata",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
     }
 ]
 
@@ -135,11 +222,27 @@ def init_db():
     cursor = conn.cursor()
     
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS organizers (
+        CREATE TABLE IF NOT EXISTS organizer_emails (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            email TEXT UNIQUE NOT NULL,
+            is_root BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER,
+            is_active BOOLEAN DEFAULT TRUE
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS organizer_otp_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            otp_code TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            is_used BOOLEAN DEFAULT FALSE,
+            session_token TEXT,
+            verified_at TIMESTAMP,
+            FOREIGN KEY (email) REFERENCES organizer_emails (email)
         )
     """)
     
@@ -240,6 +343,19 @@ def init_db():
     cursor.execute("UPDATE participants SET poa_status = 'transferred' WHERE poa_minted = TRUE")
     cursor.execute("UPDATE participants SET certificate_status = 'transferred' WHERE certificate_minted = TRUE")
     
+    # Initialize root organizer emails
+    root_emails = [
+        "sameer@0x.day",
+        "saijadhav@0x.day", 
+        "naresh@0x.day"
+    ]
+    
+    for email in root_emails:
+        cursor.execute("""
+            INSERT OR IGNORE INTO organizer_emails (email, is_root, is_active) 
+            VALUES (?, TRUE, TRUE)
+        """, (email,))
+    
     conn.commit()
     conn.close()
 
@@ -265,12 +381,100 @@ class ParticipantRegister(BaseModel):
 class TelegramVerification(BaseModel):
     telegram_username: str
 
+class OrganizerLoginRequest(BaseModel):
+    email: str
+
+class OrganizerVerifyOTP(BaseModel):
+    email: str
+    otp_code: str
+
+class OrganizerAddEmail(BaseModel):
+    email: str
+
+class OrganizerRemoveEmail(BaseModel):
+    email: str
+
+class EventStatusUpdate(BaseModel):
+    is_active: bool
+
 # Utility functions
 def generate_event_code() -> str:
     return ''.join(random.choices(string.digits, k=6))
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+def generate_otp() -> str:
+    """Generate a 6-digit OTP code"""
+    return ''.join(random.choices(string.digits, k=6))
+
+def generate_session_token() -> str:
+    """Generate a secure session token"""
+    return secrets.token_urlsafe(32)
+
+def is_organizer_email(email: str) -> bool:
+    """Check if email is in organizer list"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT id FROM organizer_emails WHERE email = ? AND is_active = TRUE",
+            (email,)
+        )
+        return cursor.fetchone() is not None
+    finally:
+        conn.close()
+
+def is_root_email(email: str) -> bool:
+    """Check if email is a root organizer email"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT id FROM organizer_emails WHERE email = ? AND is_root = TRUE AND is_active = TRUE",
+            (email,)
+        )
+        return cursor.fetchone() is not None
+    finally:
+        conn.close()
+
+def send_otp_email(email: str, otp_code: str):
+    """Send OTP code via email"""
+    subject = "0x.Day Organizer Login - OTP Code"
+    body = f"""
+    <html>
+    <body>
+        <h2>🔐 Organizer Login Verification</h2>
+        <p>Your OTP code for organizer dashboard access:</p>
+        
+        <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 3px; border-radius: 5px;">
+            {otp_code}
+        </div>
+        
+        <p><strong>This code expires in 10 minutes.</strong></p>
+        <p>If you didn't request this code, please ignore this email.</p>
+        
+        <hr>
+        <p><small>0x.Day Certificate Platform - Organizer Access</small></p>
+    </body>
+    </html>
+    """
+    send_email(email, subject, body)
+
+def verify_session_token(token: str) -> Optional[str]:
+    """Verify session token and return email if valid"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT email FROM organizer_otp_sessions 
+            WHERE session_token = ? AND is_used = TRUE 
+            AND datetime('now') < datetime(expires_at, '+24 hours')
+        """, (token,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    finally:
+        conn.close()
 
 def upload_to_pinata(file_bytes: bytes, filename: str) -> str:
     """Upload file to Pinata IPFS"""
@@ -446,72 +650,11 @@ def mint_poa_nft(wallet_address: str, event_id: int):
         raise Exception(f"Failed to mint PoA NFT: {str(e)}")
 
 def get_onchain_participants(event_id: int = None):
-    """Get participants from blockchain events"""
-    if not all([w3, CONTRACT_ADDRESS]):
-        raise Exception("Web3 not configured properly")
-    
-    try:
-        contract = w3.eth.contract(address=CONTRACT_ADDRESS, abi=CONTRACT_ABI)
-        
-        # Get PoA minted events using get_logs
-        poa_events = contract.events.PoAMinted.get_logs(
-            fromBlock=0,
-            toBlock='latest'
-        )
-        
-        # Get Certificate minted events using get_logs
-        cert_events = contract.events.CertificateMinted.get_logs(
-            fromBlock=0,
-            toBlock='latest'
-        )
-        
-        print(f"Found {len(poa_events)} PoA events and {len(cert_events)} certificate events")
-        
-        # Process participants
-        participants = {}
-        
-        # Process PoA events
-        for event in poa_events:
-            recipient = event['args']['recipient']
-            token_id = event['args']['tokenId']
-            evt_id = event['args']['eventId']
-            
-            # Filter by event ID if specified
-            if event_id and evt_id != event_id:
-                continue
-                
-            if recipient not in participants:
-                participants[recipient] = {
-                    'wallet_address': recipient,
-                    'event_id': evt_id,
-                    'poa_token_id': token_id,
-                    'certificate_token_id': None,
-                    'certificate_ipfs': None,
-                    'poa_minted': True,
-                    'certificate_minted': False
-                }
-        
-        # Process Certificate events
-        for event in cert_events:
-            recipient = event['args']['recipient']
-            token_id = event['args']['tokenId']
-            evt_id = event['args']['eventId']
-            ipfs_hash = event['args']['ipfsHash']
-            
-            # Filter by event ID if specified
-            if event_id and evt_id != event_id:
-                continue
-                
-            if recipient in participants and participants[recipient]['event_id'] == evt_id:
-                participants[recipient]['certificate_token_id'] = token_id
-                participants[recipient]['certificate_ipfs'] = ipfs_hash
-                participants[recipient]['certificate_minted'] = True
-        
-        return list(participants.values())
-        
-    except Exception as e:
-        print(f"Error getting on-chain participants: {e}")
-        return []
+    """Get participants from blockchain events - DISABLED for performance"""
+    # Since we're now using mintCertificateByOwner and trusting the database,
+    # we skip the expensive block scanning and return empty list
+    print("Skipping on-chain participant fetching - using database-only approach")
+    return []
 
 def store_verified_telegram_user(user_id: int, username: str, first_name: str = None, last_name: str = None):
     """Store verified Telegram user in database"""
@@ -654,7 +797,7 @@ def mint_certificate_nft(wallet_address: str, event_id: int, ipfs_hash: str):
                 if (len(log.topics) >= 4 and 
                     log.topics[0].hex() == '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'):
                     token_id = int(log.topics[3].hex(), 16)
-                    print(f"✅ Extracted token ID from Transfer event: {token_id}")
+                    print(f"[SUCCESS] Extracted token ID from Transfer event: {token_id}")
                     break
             except Exception as e:
                 print(f"Failed to extract token ID from log: {e}")
@@ -673,7 +816,7 @@ def mint_certificate_nft(wallet_address: str, event_id: int, ipfs_hash: str):
                             potential_token_id = int(log.data[:66], 16)  # 0x + 64 chars
                             if potential_token_id > 0 and potential_token_id < 1000000:  # Reasonable range
                                 token_id = potential_token_id
-                                print(f"✅ Extracted token ID from event data: {token_id}")
+                                print(f"[SUCCESS] Extracted token ID from event data: {token_id}")
                                 break
                 except Exception as e:
                     print(f"Failed to extract token ID from event data: {e}")
@@ -806,25 +949,209 @@ async def startup_event():
         print(f"TELEGRAM_BOT_TOKEN: {'Found' if TELEGRAM_BOT_TOKEN else 'Missing'}")
         print(f"TELEGRAM_CHAT_ID: {'Found' if TELEGRAM_CHAT_ID else 'Missing'}")
 
-@app.post("/create_organizer")
-async def create_organizer(organizer: OrganizerCreate):
-    """Create a new organizer account"""
+@app.post("/organizer/login")
+async def organizer_login(request: OrganizerLoginRequest):
+    """Send OTP to organizer email for login"""
+    email = request.email.lower().strip()
+    
+    # Check if email is authorized organizer
+    if not is_organizer_email(email):
+        raise HTTPException(
+            status_code=403, 
+            detail="Email not authorized for organizer access"
+        )
+    
+    # Generate OTP and session
+    otp_code = generate_otp()
+    expires_at = datetime.now() + timedelta(minutes=10)
+    
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     try:
-        password_hash = hash_password(organizer.password)
+        # Clear any previous unused OTPs for this email
         cursor.execute(
-            "INSERT INTO organizers (username, password_hash) VALUES (?, ?)",
-            (organizer.username, password_hash)
+            "UPDATE organizer_otp_sessions SET is_used = TRUE WHERE email = ? AND is_used = FALSE",
+            (email,)
         )
-        conn.commit()
-        organizer_id = cursor.lastrowid
         
-        return {"message": "Organizer created successfully", "organizer_id": organizer_id}
+        # Create new OTP session
+        cursor.execute("""
+            INSERT INTO organizer_otp_sessions (email, otp_code, expires_at)
+            VALUES (?, ?, ?)
+        """, (email, otp_code, expires_at))
+        
+        conn.commit()
+        
+        # Send OTP email
+        try:
+            send_otp_email(email, otp_code)
+            return {"message": "OTP sent to your email", "expires_in_minutes": 10}
+        except Exception as e:
+            # Clean up the OTP session if email fails
+            cursor.execute("DELETE FROM organizer_otp_sessions WHERE email = ? AND otp_code = ?", (email, otp_code))
+            conn.commit()
+            raise HTTPException(status_code=500, detail=f"Failed to send OTP email: {str(e)}")
+        
+    finally:
+        conn.close()
+
+@app.post("/organizer/verify-otp")
+async def verify_otp(request: OrganizerVerifyOTP):
+    """Verify OTP and create session"""
+    email = request.email.lower().strip()
+    otp_code = request.otp_code.strip()
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Find valid OTP session
+        cursor.execute("""
+            SELECT id FROM organizer_otp_sessions
+            WHERE email = ? AND otp_code = ? AND is_used = FALSE
+            AND datetime('now') < datetime(expires_at)
+        """, (email, otp_code))
+        
+        session = cursor.fetchone()
+        
+        if not session:
+            raise HTTPException(status_code=400, detail="Invalid or expired OTP code")
+        
+        session_id = session[0]
+        
+        # Generate session token
+        session_token = generate_session_token()
+        
+        # Mark OTP as used and save session token
+        cursor.execute("""
+            UPDATE organizer_otp_sessions 
+            SET is_used = TRUE, session_token = ?, verified_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (session_token, session_id))
+        
+        conn.commit()
+        
+        # Check if this is a root organizer
+        is_root = is_root_email(email)
+        
+        return {
+            "message": "Login successful",
+            "session_token": session_token,
+            "email": email,
+            "is_root": is_root
+        }
+        
+    finally:
+        conn.close()
+
+@app.post("/organizer/add-email")
+async def add_organizer_email(request: OrganizerAddEmail, session_token: str = None):
+    """Add new organizer email (requires valid session)"""
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Session token required")
+    
+    # Verify session
+    organizer_email = verify_session_token(session_token)
+    if not organizer_email:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    
+    new_email = request.email.lower().strip()
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Check if email already exists
+        cursor.execute("SELECT id FROM organizer_emails WHERE email = ?", (new_email,))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Email already exists")
+        
+        # Add new email
+        cursor.execute("""
+            INSERT INTO organizer_emails (email, is_root, created_by)
+            VALUES (?, FALSE, (SELECT id FROM organizer_emails WHERE email = ?))
+        """, (new_email, organizer_email))
+        
+        conn.commit()
+        
+        return {"message": f"Email {new_email} added successfully"}
         
     except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Username already exists")
+        raise HTTPException(status_code=400, detail="Email already exists")
+    finally:
+        conn.close()
+
+@app.post("/organizer/remove-email")
+async def remove_organizer_email(request: OrganizerRemoveEmail, session_token: str = None):
+    """Remove organizer email (requires valid session, cannot remove root emails)"""
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Session token required")
+    
+    # Verify session
+    organizer_email = verify_session_token(session_token)
+    if not organizer_email:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    
+    email_to_remove = request.email.lower().strip()
+    
+    # Check if trying to remove a root email
+    if is_root_email(email_to_remove):
+        raise HTTPException(status_code=403, detail="Cannot remove root organizer email")
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Remove email
+        cursor.execute(
+            "UPDATE organizer_emails SET is_active = FALSE WHERE email = ? AND is_root = FALSE",
+            (email_to_remove,)
+        )
+        
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Email not found or is protected")
+        
+        conn.commit()
+        
+        return {"message": f"Email {email_to_remove} removed successfully"}
+        
+    finally:
+        conn.close()
+
+@app.get("/organizer/emails")
+async def get_organizer_emails(session_token: str = None):
+    """Get list of all organizer emails (requires valid session)"""
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Session token required")
+    
+    # Verify session
+    organizer_email = verify_session_token(session_token)
+    if not organizer_email:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+            SELECT email, is_root, created_at, is_active
+            FROM organizer_emails
+            WHERE is_active = TRUE
+            ORDER BY is_root DESC, created_at ASC
+        """)
+        
+        emails = []
+        for row in cursor.fetchall():
+            emails.append({
+                "email": row[0],
+                "is_root": bool(row[1]),
+                "created_at": row[2],
+                "is_active": bool(row[3])
+            })
+        
+        return {"emails": emails}
+        
     finally:
         conn.close()
 
@@ -870,8 +1197,8 @@ async def create_event(event: EventCreate, organizer_id: int = 1):
                 
                 transaction = contract.functions.createEvent(event_id, event.event_name).build_transaction({
                     'chainId': network,
-                    'gas': gas_estimate + 20000,  # Add buffer
-                    'gasPrice': w3.to_wei('1', 'gwei'),  # Lower gas price for localhost
+                    'gas': gas_estimate + 20000,  # Smaller buffer
+                    'gasPrice': w3.to_wei('0.1', 'gwei'),  # Much lower gas price for Base Sepolia
                     'nonce': w3.eth.get_transaction_count(account.address),
                 })
                 
@@ -930,7 +1257,7 @@ async def register_participant(participant: ParticipantRegister):
             
             # Check if it's the same person (same name and email) trying to register again
             if existing_name.lower() == participant.name.lower() and existing_email.lower() == participant.email.lower():
-                print(f"❌ Same user already registered: {participant.wallet_address}")
+                print(f"[ERROR] Same user already registered: {participant.wallet_address}")
                 
                 # Provide specific error message based on their completion status
                 if certificate_minted:
@@ -946,7 +1273,7 @@ async def register_participant(participant: ParticipantRegister):
                 )
             else:
                 # Different person trying to use the same wallet address
-                print(f"❌ Wallet address already in use: {participant.wallet_address} by {existing_name} ({existing_email})")
+                print(f"[ERROR] Wallet address already in use: {participant.wallet_address} by {existing_name} ({existing_email})")
                 raise HTTPException(
                     status_code=400, 
                     detail={
@@ -960,7 +1287,7 @@ async def register_participant(participant: ParticipantRegister):
                 )
         
         # Register new participant
-        print(f"📝 Registering new participant: {participant.name}")
+        print(f"[INFO] Registering new participant: {participant.name}")
         cursor.execute(
             """INSERT INTO participants 
                (wallet_address, email, name, team_name, event_id, telegram_username, telegram_verified, telegram_verified_at) 
@@ -1263,12 +1590,48 @@ async def confirm_poa_mint(request: dict):
     finally:
         conn.close()
 
+@app.post("/generate_poa_metadata/{event_id}")
+async def generate_poa_metadata_endpoint(event_id: int):
+    """Generate PoA metadata with event name from database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Get event name from database
+        cursor.execute("SELECT event_name FROM events WHERE id = ?", (event_id,))
+        event_result = cursor.fetchone()
+        
+        if not event_result:
+            raise HTTPException(status_code=404, detail="Event not found")
+        
+        event_name = event_result[0]
+        
+        # Generate PoA metadata with event name
+        poa_metadata = generate_poa_metadata(event_name)
+        
+        # Upload metadata to IPFS
+        ipfs_result = upload_poa_metadata_to_ipfs(poa_metadata)
+        
+        if not ipfs_result["success"]:
+            raise HTTPException(status_code=500, detail=f"Failed to upload PoA metadata: {ipfs_result['error']}")
+        
+        return {
+            "success": True,
+            "event_name": event_name,
+            "metadata_hash": ipfs_result["metadata_hash"],
+            "metadata_url": ipfs_result["metadata_url"],
+            "metadata": poa_metadata
+        }
+        
+    finally:
+        conn.close()
+
 @app.post("/bulk_mint_poa/{event_id}")
 async def bulk_mint_poa(event_id: int, request: dict):
     """Bulk mint PoA NFTs for all registered participants of an event"""
     organizer_wallet = request.get("organizer_wallet")
     
-    print(f"🎯 BULK MINT DEBUG - Received organizer_wallet: {organizer_wallet}")
+    print(f"[DEBUG] BULK MINT DEBUG - Received organizer_wallet: {organizer_wallet}")
     
     if not organizer_wallet:
         raise HTTPException(status_code=400, detail="Organizer wallet address required")
@@ -1305,6 +1668,20 @@ async def bulk_mint_poa(event_id: int, request: dict):
         # Create array of organizer addresses (one for each participant)
         recipient_addresses = [organizer_checksum] * len(participants)
         
+        # Generate PoA metadata for the event
+        print(f"[INFO] Generating PoA metadata for event: {event_name}")
+        poa_metadata = generate_poa_metadata(event_name, "Event Participants")
+        
+        # Upload metadata to IPFS
+        print(f"[INFO] Uploading metadata to IPFS...")
+        upload_result = upload_poa_metadata_to_ipfs(poa_metadata)
+        
+        if not upload_result["success"]:
+            raise HTTPException(status_code=500, detail=f"Failed to upload metadata to IPFS: {upload_result['error']}")
+        
+        ipfs_hash = upload_result["metadata_hash"]
+        print(f"[INFO] Metadata uploaded successfully. IPFS hash: {ipfs_hash}")
+        
         # Return data for frontend to execute bulk mint transaction
         return {
             "message": f"Ready to bulk mint {len(participants)} PoA NFTs",
@@ -1312,7 +1689,9 @@ async def bulk_mint_poa(event_id: int, request: dict):
             "event_name": event_name,
             "recipients": recipient_addresses,
             "participant_count": len(participants),
-            "organizer_wallet": organizer_wallet
+            "organizer_wallet": organizer_wallet,
+            "ipfs_hash": ipfs_hash,
+            "metadata_url": f"https://gateway.pinata.cloud/ipfs/{ipfs_hash}"
         }
         
     finally:
@@ -1355,6 +1734,64 @@ async def confirm_bulk_mint_poa(request: dict):
             "message": f"Bulk PoA NFT mint confirmed for {len(participants)} participants",
             "tx_hash": tx_hash,
             "participants_updated": len(participants)
+        }
+        
+    finally:
+        conn.close()
+
+@app.post("/update_poa_metadata/{event_id}")
+async def update_poa_metadata_endpoint(event_id: int, request: dict):
+    """Update PoA token metadata with event name for all minted tokens"""
+    token_ids = request.get("token_ids", [])
+    
+    if not token_ids:
+        raise HTTPException(status_code=400, detail="Token IDs required")
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Get event name from database
+        cursor.execute("SELECT event_name FROM events WHERE id = ?", (event_id,))
+        event_result = cursor.fetchone()
+        
+        if not event_result:
+            raise HTTPException(status_code=404, detail="Event not found")
+        
+        event_name = event_result[0]
+        
+        # Generate and upload PoA metadata with event name
+        poa_metadata = generate_poa_metadata(event_name)
+        ipfs_result = upload_poa_metadata_to_ipfs(poa_metadata)
+        
+        if not ipfs_result["success"]:
+            raise HTTPException(status_code=500, detail=f"Failed to upload PoA metadata: {ipfs_result['error']}")
+        
+        metadata_hash = ipfs_result["metadata_hash"]
+        
+        # Update metadata for each token
+        successful_updates = []
+        failed_updates = []
+        
+        for token_id in token_ids:
+            try:
+                result = update_poa_token_metadata(token_id, metadata_hash)
+                if result["success"]:
+                    successful_updates.append(token_id)
+                else:
+                    failed_updates.append({"token_id": token_id, "error": result["error"]})
+            except Exception as e:
+                failed_updates.append({"token_id": token_id, "error": str(e)})
+        
+        return {
+            "success": True,
+            "event_name": event_name,
+            "metadata_hash": metadata_hash,
+            "successful_updates": successful_updates,
+            "failed_updates": failed_updates,
+            "total_tokens": len(token_ids),
+            "successful_count": len(successful_updates),
+            "failed_count": len(failed_updates)
         }
         
     finally:
@@ -1423,7 +1860,7 @@ async def batch_transfer_poa(event_id: int, request: dict):
                 print(f"Warning: Invalid wallet address {wallet_address}: {e}")
                 continue
         
-        print(f"🔄 Batch transfer for event {event_id}:")
+        print(f"[INFO] Batch transfer for event {event_id}:")
         print(f"   - Organizer: {organizer_wallet}")
         print(f"   - Recipients: {recipients}")
         print(f"   - Token IDs: {token_ids}")
@@ -1770,52 +2207,35 @@ async def get_participants(event_id: int):
         
         print(f"Found {len(db_participants)} participants in database")
         
-        # Get blockchain data for enrichment
-        try:
-            onchain_participants = get_onchain_participants(event_id)
-            print(f"Found {len(onchain_participants)} on-chain participants")
-            
-            # Create a lookup dict for blockchain data
-            onchain_lookup = {}
-            for p in onchain_participants:
-                onchain_lookup[p['wallet_address'].lower()] = p
-                
-        except Exception as e:
-            print(f"Warning: Error getting blockchain data: {e}")
-            onchain_lookup = {}
-        
-        # Build enriched participant list
-        enriched_participants = []
+        # Build participant list directly from database (no blockchain enrichment needed)
+        participants = []
         
         for db_participant in db_participants:
             wallet_address = db_participant[0]
             
-            # Get blockchain data if available
-            blockchain_data = onchain_lookup.get(wallet_address.lower(), {})
-            
-            enriched_participant = {
+            participant = {
                 "wallet_address": wallet_address,
                 "event_id": event_id,
                 "name": db_participant[1] or 'Unknown',
                 "email": db_participant[2] or 'Unknown',
                 "team_name": db_participant[3],
                 "poa_status": db_participant[4] or 'registered',
-                "poa_token_id": db_participant[5] or blockchain_data.get('poa_token_id'),
+                "poa_token_id": db_participant[5],
                 "poa_minted_at": db_participant[6],
                 "poa_transferred_at": db_participant[7],
-                "poa_minted": blockchain_data.get('poa_minted', False),
+                "poa_minted": db_participant[5] is not None,  # True if token ID exists
                 "certificate_status": db_participant[8] or 'not_eligible',
-                "certificate_token_id": db_participant[9] or blockchain_data.get('certificate_token_id'),
+                "certificate_token_id": db_participant[9],
                 "certificate_minted_at": db_participant[10],
                 "certificate_transferred_at": db_participant[11],
-                "certificate_minted": blockchain_data.get('certificate_minted', False),
-                "certificate_ipfs": db_participant[12] or blockchain_data.get('certificate_ipfs')
+                "certificate_minted": db_participant[9] is not None,  # True if token ID exists
+                "certificate_ipfs": db_participant[12]
             }
             
-            enriched_participants.append(enriched_participant)
+            participants.append(participant)
         
-        print(f"Returning {len(enriched_participants)} enriched participants")
-        return {"participants": enriched_participants}
+        print(f"Returning {len(participants)} participants from database")
+        return {"participants": participants}
         
     except Exception as e:
         print(f"Error getting participants: {e}")
@@ -2143,6 +2563,53 @@ async def get_certificate_status(event_id: int):
             "ready_for_bulk_generation": stats[1] > 0 and stats[2] == 0
         }
         
+    finally:
+        conn.close()
+
+@app.put("/toggle_event_status/{event_id}")
+async def toggle_event_status(event_id: int, request: EventStatusUpdate, session_token: str = None):
+    """Toggle event active status (requires valid organizer session)"""
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Session token required")
+    
+    # Verify session
+    organizer_email = verify_session_token(session_token)
+    if not organizer_email:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Check if event exists
+        cursor.execute("SELECT event_name, is_active FROM events WHERE id = ?", (event_id,))
+        event = cursor.fetchone()
+        
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+        
+        event_name, current_status = event
+        
+        # Update event status
+        cursor.execute(
+            "UPDATE events SET is_active = ? WHERE id = ?",
+            (request.is_active, event_id)
+        )
+        
+        conn.commit()
+        
+        return {
+            "message": f"Event '{event_name}' status updated successfully",
+            "event_id": event_id,
+            "event_name": event_name,
+            "previous_status": bool(current_status),
+            "new_status": request.is_active,
+            "updated_by": organizer_email
+        }
+        
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update event status: {str(e)}")
     finally:
         conn.close()
 

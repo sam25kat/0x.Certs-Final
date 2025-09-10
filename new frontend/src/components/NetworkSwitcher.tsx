@@ -4,16 +4,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertTriangle, Network, Plus } from 'lucide-react';
 
-const HARDHAT_NETWORK = {
-  chainId: '0x7A69', // 31337 in hex
-  chainName: 'Hardhat Local',
+const BASE_SEPOLIA_NETWORK = {
+  chainId: '0x14A34', // 84532 in hex
+  chainName: 'Base Sepolia Testnet',
   nativeCurrency: {
     name: 'Ether',
     symbol: 'ETH',
     decimals: 18,
   },
-  rpcUrls: ['http://127.0.0.1:8545'],
-  blockExplorerUrls: ['http://localhost:8545'],
+  rpcUrls: ['https://sepolia.base.org'],
+  blockExplorerUrls: ['https://sepolia.basescan.org'],
 };
 
 export function NetworkSwitcher() {
@@ -21,9 +21,9 @@ export function NetworkSwitcher() {
   const chainId = useChainId();
   const { switchChain, isPending } = useSwitchChain();
   
-  const isCorrectNetwork = chainId === 31337;
+  const isCorrectNetwork = chainId === 84532;
 
-  const addHardhatNetwork = async () => {
+  const addBaseSepolia = async () => {
     if (!window.ethereum) {
       alert('Please install MetaMask or another Web3 wallet');
       return;
@@ -33,7 +33,7 @@ export function NetworkSwitcher() {
       // Try to switch to the network first
       await window.ethereum.request({
         method: 'wallet_switchEthereumChain',
-        params: [{ chainId: HARDHAT_NETWORK.chainId }],
+        params: [{ chainId: BASE_SEPOLIA_NETWORK.chainId }],
       });
     } catch (switchError: any) {
       // If network doesn't exist, add it
@@ -41,11 +41,11 @@ export function NetworkSwitcher() {
         try {
           await window.ethereum.request({
             method: 'wallet_addEthereumChain',
-            params: [HARDHAT_NETWORK],
+            params: [BASE_SEPOLIA_NETWORK],
           });
         } catch (addError) {
           console.error('Failed to add network:', addError);
-          alert('Failed to add Hardhat network. Please add it manually.');
+          alert('Failed to add Base Sepolia network. Please add it manually.');
         }
       } else {
         console.error('Failed to switch network:', switchError);
@@ -53,11 +53,11 @@ export function NetworkSwitcher() {
     }
   };
 
-  const switchToHardhat = () => {
+  const switchToBaseSepolia = () => {
     if (switchChain) {
-      switchChain({ chainId: 31337 });
+      switchChain({ chainId: 84532 });
     } else {
-      addHardhatNetwork();
+      addBaseSepolia();
     }
   };
 
@@ -66,46 +66,44 @@ export function NetworkSwitcher() {
   }
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 p-4 bg-background/95 backdrop-blur border-b">
-      <div className="container mx-auto max-w-4xl">
-        <Alert className="border-yellow-200 bg-yellow-50">
-          <AlertTriangle className="h-4 w-4 text-yellow-600" />
-          <AlertDescription className="text-yellow-800">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex-1">
-                <strong>Wrong network detected!</strong> Please switch to Hardhat Local network (Chain ID: 31337) to use this application.
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  onClick={switchToHardhat}
-                  disabled={isPending}
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                >
-                  {isPending ? (
-                    'Switching...'
-                  ) : (
-                    <>
-                      <Network className="h-3 w-3 mr-2" />
-                      Switch Network
-                    </>
-                  )}
-                </Button>
-                <Button
-                  onClick={addHardhatNetwork}
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                >
-                  <Plus className="h-3 w-3 mr-2" />
-                  Add Network
-                </Button>
-              </div>
+    <div className="w-full p-4 mb-6">
+      <Alert className="border-yellow-200 bg-yellow-50">
+        <AlertTriangle className="h-4 w-4 text-yellow-600" />
+        <AlertDescription className="text-yellow-800">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <strong>Wrong network detected!</strong> Please switch to Base Sepolia Testnet (Chain ID: 84532) to use this application.
             </div>
-          </AlertDescription>
-        </Alert>
-      </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={switchToBaseSepolia}
+                disabled={isPending}
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+              >
+                {isPending ? (
+                  'Switching...'
+                ) : (
+                  <>
+                    <Network className="h-3 w-3 mr-2" />
+                    Switch Network
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={addBaseSepolia}
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+              >
+                <Plus className="h-3 w-3 mr-2" />
+                Add Network
+              </Button>
+            </div>
+          </div>
+        </AlertDescription>
+      </Alert>
     </div>
   );
 }
@@ -131,17 +129,17 @@ export function NetworkInstructions() {
         </div>
         
         <div className="bg-muted p-4 rounded-lg space-y-2 text-sm font-mono">
-          <div><strong>Network Name:</strong> Hardhat Local</div>
-          <div><strong>RPC URL:</strong> http://127.0.0.1:8545</div>
-          <div><strong>Chain ID:</strong> 31337</div>
+          <div><strong>Network Name:</strong> Base Sepolia Testnet</div>
+          <div><strong>RPC URL:</strong> https://sepolia.base.org</div>
+          <div><strong>Chain ID:</strong> 84532</div>
           <div><strong>Currency Symbol:</strong> ETH</div>
-          <div><strong>Block Explorer:</strong> (leave empty)</div>
+          <div><strong>Block Explorer:</strong> https://sepolia.basescan.org</div>
         </div>
         
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            Make sure your Hardhat local network is running on port 8545 before adding this network.
+            Base Sepolia is a testnet. You can get testnet ETH from the Base Sepolia faucet.
           </AlertDescription>
         </Alert>
       </CardContent>

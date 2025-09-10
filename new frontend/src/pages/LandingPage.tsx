@@ -1,12 +1,26 @@
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Settings } from 'lucide-react';
 
 export default function LandingPage() {
   console.log('🏠 LandingPage: Component is rendering');
 
   return (
     <div className="min-h-screen">
+      {/* Organizer Access - Discrete Sidebar */}
+      <div className="fixed top-4 right-4 z-50">
+        <Link to="/organizer">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="opacity-70 hover:opacity-100 transition-opacity"
+            title="Organizer Access"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        </Link>
+      </div>
+
       {/* Hero Section */}
       <section className="relative overflow-hidden min-h-screen flex items-center justify-center">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background/80 to-background/90"></div>
@@ -18,16 +32,10 @@ export default function LandingPage() {
             <p className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto">
               The future of hackathon certificates. Secure, verifiable, and powered by Web3 technology.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <div className="flex justify-center">
               <Link to="/participant">
-                <Button size="lg" variant="default" className="min-w-[200px]">
+                <Button size="lg" variant="default" className="min-w-[250px]">
                   Join as Participant
-                  <ChevronRight className="ml-2 h-4 w-4" />
-                </Button>
-              </Link>
-              <Link to="/organizer">
-                <Button size="lg" variant="outline" className="min-w-[200px]">
-                  Organize Events
                   <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
@@ -92,15 +100,11 @@ export default function LandingPage() {
             <p className="text-lg text-muted-foreground mb-8">
               Join thousands of developers earning verifiable Web3 certificates
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <div className="flex justify-center">
               <Link to="/participant">
-                <Button size="lg" variant="default" className="min-w-[200px]">
-                  Start as Participant
-                </Button>
-              </Link>
-              <Link to="/organizer">
-                <Button size="lg" variant="outline" className="min-w-[200px]">
-                  Become an Organizer
+                <Button size="lg" variant="default" className="min-w-[250px]">
+                  Get Started Now
+                  <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
             </div>

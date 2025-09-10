@@ -1,44 +1,19 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
-import { hardhat, localhost } from 'wagmi/chains';
+import { baseSepolia } from 'wagmi/chains';
 import { http } from 'wagmi';
 
-// Custom localhost chain configuration
-const customLocalhost = {
-  ...localhost,
-  id: 31337,
-  name: 'Hardhat Local',
-  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: {
-    default: { http: ['http://127.0.0.1:8545'] },
-    public: { http: ['http://127.0.0.1:8545'] },
-  },
-} as const;
-
 export const config = getDefaultConfig({
-  appName: 'Hackathon Certificate DApp',
+  appName: '0x.Certs',
   projectId: 'YOUR_PROJECT_ID', // Get from WalletConnect if needed
-  chains: [hardhat],
+  chains: [baseSepolia],
   transports: {
-    [hardhat.id]: http('http://127.0.0.1:8545', {
-      batch: false, // Disable batching to avoid block tag issues
-      retryCount: 0, // No retries
-      retryDelay: 0,
-      timeout: 10000,
-      fetchOptions: {
-        cache: 'no-store', // More aggressive no-cache
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0',
-        },
-      },
-    }),
+    [baseSepolia.id]: http('https://sepolia.base.org'),
   },
   ssr: false, // Since we're not using SSR
 });
 
 // Contract configuration
-export const CONTRACT_ADDRESS = '0x5FbDB2315678afecb367f032d93F642f64180aa3' as const;
+export const CONTRACT_ADDRESS = '0xa51A70d9C18FFED4fC4214dedEC05E8C988900d0' as const;
 
 export const CONTRACT_ABI = [
   {
@@ -49,14 +24,14 @@ export const CONTRACT_ABI = [
     type: 'function'
   },
   {
-    inputs: [{ internalType: 'address', name: 'recipient', type: 'address' }, { internalType: 'uint256', name: 'eventId', type: 'uint256' }],
+    inputs: [{ internalType: 'address', name: 'recipient', type: 'address' }, { internalType: 'uint256', name: 'eventId', type: 'uint256' }, { internalType: 'string', name: 'ipfsHash', type: 'string' }],
     name: 'mintPoA',
     outputs: [],
     stateMutability: 'nonpayable',
     type: 'function'
   },
   {
-    inputs: [{ internalType: 'address[]', name: 'recipients', type: 'address[]' }, { internalType: 'uint256', name: 'eventId', type: 'uint256' }],
+    inputs: [{ internalType: 'address[]', name: 'recipients', type: 'address[]' }, { internalType: 'uint256', name: 'eventId', type: 'uint256' }, { internalType: 'string', name: 'ipfsHash', type: 'string' }],
     name: 'bulkMintPoA',
     outputs: [],
     stateMutability: 'nonpayable',

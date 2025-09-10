@@ -27,27 +27,27 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
         emit EventCreated(eventId, eventName);
     }
     
-    function mintPoA(address recipient, uint256 eventId) external {
+    function mintPoA(address recipient, uint256 eventId, string memory ipfsHash) external {
         require(recipient == msg.sender, "Can only mint for yourself");
         require(!hasPoAForEvent[recipient][eventId], "PoA already minted for this event");
         require(bytes(eventNames[eventId]).length > 0, "Event does not exist");
         
-        uint256 tokenId = _mintPoAInternal(recipient, eventId);
+        uint256 tokenId = _mintPoAInternal(recipient, eventId, ipfsHash);
         emit PoAMinted(recipient, tokenId, eventId);
     }
     
-    function bulkMintPoA(address[] memory recipients, uint256 eventId) external {
+    function bulkMintPoA(address[] memory recipients, uint256 eventId, string memory ipfsHash) external {
         require(bytes(eventNames[eventId]).length > 0, "Event does not exist");
         
         for (uint256 i = 0; i < recipients.length; i++) {
             address recipient = recipients[i];
             // Remove duplicate check to allow organizer to receive multiple tokens
-            uint256 tokenId = _mintPoAInternal(recipient, eventId);
+            uint256 tokenId = _mintPoAInternal(recipient, eventId, ipfsHash);
             emit PoAMinted(recipient, tokenId, eventId);
         }
     }
     
-    function _mintPoAInternal(address recipient, uint256 eventId) internal returns (uint256) {
+    function _mintPoAInternal(address recipient, uint256 eventId, string memory ipfsHash) internal returns (uint256) {
         uint256 tokenId = _tokenIdCounter.current();
         _tokenIdCounter.increment();
         
@@ -57,9 +57,8 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
         tokenToEventId[tokenId] = eventId;
         hasPoAForEvent[recipient][eventId] = true;
         
-        // Use external IPFS JSON metadata (same as POC certificates)
-        // This points to a pre-uploaded PoA metadata JSON file on IPFS
-        string memory uri = string(abi.encodePacked("https://gateway.pinata.cloud/ipfs/", "QmUAPuMJjbEftXHmqQ9W1R1RGKU9NvNG6inSdtA24XpRnz"));
+        // Use dynamic IPFS metadata (same as POC certificates)
+        string memory uri = string(abi.encodePacked("https://gateway.pinata.cloud/ipfs/", ipfsHash));
         _setTokenURI(tokenId, uri);
         
         return tokenId;
@@ -75,7 +74,6 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
     }
     
     function mintCertificate(address recipient, uint256 eventId, string memory ipfsHash) external {
-        require(_hasPoAForEvent(recipient, eventId), "Must have PoA for this event first");
         require(bytes(eventNames[eventId]).length > 0, "Event does not exist");
         
         uint256 tokenId = _tokenIdCounter.current();
@@ -93,39 +91,54 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
         emit CertificateMinted(recipient, tokenId, eventId, ipfsHash);
     }
     
-    function updateMetadata(uint256 tokenId, string memory ipfsHash) external onlyOwner {
-        require(_exists(tokenId), "Token does not exist");
+    function mintCertificateByOwner(address recipient, uint256 eventId, string memory ipfsHash) external onlyOwner {
+        require(bytes(eventNames[eventId]).length > 0, "Event does not exist");
+        
+        uint256 tokenId = _tokenIdCounter.current();
+        _tokenIdCounter.increment();
+        
+        _safeMint(recipient, tokenId);
+        
+        isPoA[tokenId] = false;
+        tokenToEventId[tokenId] = eventId;
+        
+        // Use full HTTPS URL for better wallet compatibility
         string memory uri = string(abi.encodePacked("https://gateway.pinata.cloud/ipfs/", ipfsHash));
         _setTokenURI(tokenId, uri);
+        
+        emit CertificateMinted(recipient, tokenId, eventId, ipfsHash);
     }
+    
+    // function updateMetadata(uint256 tokenId, string memory ipfsHash) external onlyOwner {
+    //     require(_ownerOf(tokenId) != address(0), "Token does not exist");
+    //     string memory uri = string(abi.encodePacked("https://gateway.pinata.cloud/ipfs/", ipfsHash));
+    //     _setTokenURI(tokenId, uri);
+    // }
     
     function _hasPoAForEvent(address user, uint256 eventId) internal view returns (bool) {
-        // Check if user currently owns a PoA token for this event
-        uint256 tokenCount = balanceOf(user);
-        if (tokenCount == 0) return false;
-        
-        for (uint256 i = 0; i < _tokenIdCounter.current(); i++) {
-            if (_exists(i) && ownerOf(i) == user && isPoA[i] && tokenToEventId[i] == eventId) {
-                return true;
-            }
-        }
-        return false;
+        // Always return true to bypass PoA check
+        return true;
     }
     
-    function getTokensByOwner(address owner) external view returns (uint256[] memory) {
-        uint256 tokenCount = balanceOf(owner);
-        uint256[] memory tokens = new uint256[](tokenCount);
-        uint256 index = 0;
+    // function getTokensByOwner(address owner) external view returns (uint256[] memory) {
+    //     uint256 tokenCount = balanceOf(owner);
+    //     uint256[] memory tokens = new uint256[](tokenCount);
+    //     uint256 index = 0;
         
-        for (uint256 i = 0; i < _tokenIdCounter.current(); i++) {
-            if (_exists(i) && ownerOf(i) == owner) {
-                tokens[index] = i;
-                index++;
-            }
-        }
+    //     for (uint256 i = 0; i < _tokenIdCounter.current(); i++) {
+    //         try this.ownerOf(i) returns (address tokenOwner) {
+    //             if (tokenOwner == owner) {
+    //                 tokens[index] = i;
+    //                 index++;
+    //             }
+    //         } catch {
+    //             // Token doesn't exist, continue
+    //             continue;
+    //         }
+    //     }
         
-        return tokens;
-    }
+    //     return tokens;
+    // }
     
     function _beforeTokenTransfer(
         address from,

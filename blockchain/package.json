@@ -4,7 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "compile": "npx hardhat compile",
+    "deploy:localhost": "npx hardhat run scripts/deploy.js --network localhost",
+    "deploy:baseSepolia": "npx hardhat run scripts/deploy-base-sepolia.js --network baseSepolia"
   },
   "keywords": [],
   "author": "",
@@ -17,7 +20,8 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.2.0",
-    "dotenv": "^17.2.2"
+    "dotenv": "^17.2.2",
+    "sqlite3": "^5.1.7"
   },
   "type": "module"
 }

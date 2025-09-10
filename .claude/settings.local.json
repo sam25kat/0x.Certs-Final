@@ -23,7 +23,15 @@
       "Bash(npm start)",
       "Bash(tasklist:*)",
       "Bash(wmic:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(dir \"C:\\Users\\JARVIS\\Desktop\\0x.Certs\")",
+      "Bash(dir \"C:\\Users\\JARVIS\\Desktop\\0x.Certs\\new frontend\")",
+      "Bash(dir \"C:\\Users\\JARVIS\\Desktop\\0x.Certs\\new frontend\\src\")",
+      "Bash(dir \"C:\\Users\\JARVIS\\Desktop\\0x.Certs\\new frontend\\src\\pages\")",
+      "WebFetch(domain:gateway.pinata.cloud)",
+      "Bash(/bashes)",
+      "Bash(del test_dynamic_poa.py)",
+      "Bash(dir \"C:\\Users\\JARVIS\\Desktop\\0x.Certs\\blockchain\\scripts\")"
     ],
     "deny": [],
     "ask": []

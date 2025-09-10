@@ -10,44 +10,292 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { api, type Event, type Participant } from '@/lib/api';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '@/config/wagmi';
-import { Plus, Users, Award, Send, Download, BarChart3, Copy } from 'lucide-react';
+import { Plus, Users, Award, Send, Download, BarChart3, Copy, Mail, Trash2, Settings, Shield, Factory, Wallet, FileText, BarChart, Calendar, CalendarIcon } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
+
+interface OrganizerSession {
+  sessionToken: string;
+  email: string;
+  isRoot: boolean;
+}
+
+interface OrganizerEmail {
+  email: string;
+  is_root: boolean;
+  created_at: string;
+  is_active: boolean;
+}
 
 export default function OrganizerDashboard() {
   console.log('🛠️ OrganizerDashboard: Component is rendering');
+  
   const { address, isConnected } = useAccount();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [session, setSession] = useState<OrganizerSession | null>(null);
+  const [loginStep, setLoginStep] = useState<'email' | 'otp'>('email');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Email management state
+  const [showEmailManagement, setShowEmailManagement] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [organizerEmails, setOrganizerEmails] = useState<OrganizerEmail[]>([]);
+  
+  // Event management state (existing)
   const [showCreateEvent, setShowCreateEvent] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [loadingStates, setLoadingStates] = useState<{[key: string]: boolean}>({});
-  const [newEvent, setNewEvent] = useState({
+  const [eventForm, setEventForm] = useState({
     event_name: '',
     description: '',
     event_date: '',
     sponsors: '',
   });
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
 
-  const { data: events = [], isLoading: eventsLoading, error: eventsError } = useQuery({
+  // Check for existing session on component mount
+  useEffect(() => {
+    const storedSession = localStorage.getItem('organizerSession');
+    if (storedSession) {
+      try {
+        const parsed = JSON.parse(storedSession);
+        setSession(parsed);
+        setIsAuthenticated(true);
+      } catch (e) {
+        localStorage.removeItem('organizerSession');
+      }
+    }
+  }, []);
+
+  // Load organizer emails when authenticated
+  useEffect(() => {
+    if (isAuthenticated && session) {
+      loadOrganizerEmails();
+    }
+  }, [isAuthenticated, session]);
+
+  const handleSendOTP = async () => {
+    if (!loginEmail.trim()) {
+      toast({
+        title: "Email required",
+        description: "Please enter your organizer email address",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch('http://localhost:8000/organizer/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail.trim() }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to send OTP');
+      }
+
+      toast({
+        title: "OTP sent!",
+        description: `Check your email (${loginEmail}) for the verification code`,
+      });
+      setLoginStep('otp');
+    } catch (error: any) {
+      toast({
+        title: "Failed to send OTP",
+        description: error.message || 'Please check your email and try again',
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleVerifyOTP = async () => {
+    if (!otpCode.trim()) {
+      toast({
+        title: "OTP required",
+        description: "Please enter the 6-digit code from your email",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch('http://localhost:8000/organizer/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email: loginEmail.trim(), 
+          otp_code: otpCode.trim() 
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Invalid OTP code');
+      }
+
+      // Store session
+      const sessionData: OrganizerSession = {
+        sessionToken: data.session_token,
+        email: data.email,
+        isRoot: data.is_root,
+      };
+      
+      localStorage.setItem('organizerSession', JSON.stringify(sessionData));
+      setSession(sessionData);
+      setIsAuthenticated(true);
+      
+      toast({
+        title: "Welcome!",
+        description: `Successfully logged in as ${data.email}`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Verification failed",
+        description: error.message || 'Invalid or expired OTP code',
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('organizerSession');
+    setSession(null);
+    setIsAuthenticated(false);
+    setLoginStep('email');
+    setLoginEmail('');
+    setOtpCode('');
+    
+    toast({
+      title: "Logged out",
+      description: "You have been successfully logged out",
+    });
+  };
+
+  const loadOrganizerEmails = async () => {
+    if (!session) return;
+    
+    try {
+      const response = await fetch(`http://localhost:8000/organizer/emails?session_token=${session.sessionToken}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        setOrganizerEmails(data.emails);
+      }
+    } catch (error) {
+      console.error('Failed to load organizer emails:', error);
+    }
+  };
+
+  const handleAddEmail = async () => {
+    if (!newEmail.trim() || !session) return;
+
+    try {
+      const response = await fetch(`http://localhost:8000/organizer/add-email?session_token=${session.sessionToken}`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: newEmail.trim() }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to add email');
+      }
+
+      toast({
+        title: "Email added",
+        description: data.message,
+      });
+      
+      setNewEmail('');
+      loadOrganizerEmails();
+    } catch (error: any) {
+      toast({
+        title: "Failed to add email",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRemoveEmail = async (email: string) => {
+    if (!session) return;
+
+    try {
+      const response = await fetch(`http://localhost:8000/organizer/remove-email?session_token=${session.sessionToken}`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to remove email');
+      }
+
+      toast({
+        title: "Email removed",
+        description: data.message,
+      });
+      
+      loadOrganizerEmails();
+    } catch (error: any) {
+      toast({
+        title: "Failed to remove email",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Event management functions (full implementation)
+  const { data: events = [], isLoading: eventsLoading, refetch: refetchEvents } = useQuery({
     queryKey: ['events'],
     queryFn: api.getEvents,
+    enabled: isAuthenticated,
   });
-  
-  console.log('📅 Events data:', { events, eventsLoading, eventsError });
 
-  const { data: participants = [], isLoading: participantsLoading, error: participantsError } = useQuery({
-    queryKey: ['participants', selectedEventId],
-    queryFn: () => selectedEventId ? api.getParticipants(selectedEventId) : Promise.resolve([]),
-    enabled: !!selectedEventId,
-  });
-  
-  console.log('👥 Participants data:', { participants, participantsLoading, participantsError, selectedEventId });
+  const [participants, setParticipants] = useState<{[key: number]: Participant[]}>({});
+  const [expandedEvents, setExpandedEvents] = useState<{[key: number]: boolean}>({});
 
   const createEventMutation = useMutation({
     mutationFn: api.createEvent,
     onSuccess: (event) => {
       queryClient.invalidateQueries({ queryKey: ['events'] });
       setShowCreateEvent(false);
-      setNewEvent({ event_name: '', description: '', event_date: '', sponsors: '' });
+      setEventForm({ event_name: '', description: '', event_date: '', sponsors: '' });
       toast({
         title: "Event created successfully!",
         description: `Event code: ${event.event_code}`,
@@ -61,21 +309,20 @@ export default function OrganizerDashboard() {
     },
   });
 
-  // Bulk mint hooks for blockchain
+  // Blockchain hooks for minting and transfers
   const { 
     data: bulkMintHash, 
     writeContract: bulkMintWrite, 
     isPending: isBulkMintLoading 
   } = useWriteContract();
 
-  // Batch transfer hooks for blockchain
   const { 
     data: batchTransferHash, 
     writeContract: batchTransferWrite, 
     isPending: isBatchTransferLoading 
   } = useWriteContract();
 
-  // Wait for bulk mint transaction
+  // Wait for transactions
   const { 
     isLoading: isBulkMintWaiting, 
     data: bulkMintReceipt, 
@@ -85,7 +332,6 @@ export default function OrganizerDashboard() {
     hash: bulkMintHash,
   });
 
-  // Wait for batch transfer transaction  
   const { 
     isLoading: isBatchTransferWaiting, 
     data: batchTransferReceipt,
@@ -95,115 +341,149 @@ export default function OrganizerDashboard() {
     hash: batchTransferHash,
   });
 
-  const handleGenerateCertificates = async (eventId: string) => {
-    try {
-      setLoadingStates(prev => ({ ...prev, [`cert-${eventId}`]: true }));
-      showStatus('loading', 'Generating certificates for all PoA holders...');
-      
-      const response = await fetch(`http://localhost:8000/bulk_generate_certificates/${eventId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      const result = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(result.detail || 'Failed to generate certificates');
-      }
-
-      const summary = result.summary;
-      
-      // Check if there were any failures
-      if (summary.failed_operations > 0) {
-        const failureDetails = result.details?.filter((d: any) => !d.success) || [];
-        const failureMessages = failureDetails.map((d: any) => `• ${d.participant}: ${d.step} failed - ${d.error}`).join('\\n');
-        
-        showStatus('warning', 
-          `⚠️ Certificate generation completed with some issues:\\n\\n` +
-          `📊 Summary:\\n` +
-          `• Total participants: ${summary.total_participants}\\n` +
-          `• Certificates generated: ${summary.successful_certificates}\\n` +
-          `• Emails sent: ${summary.successful_emails}\\n` +
-          `• Failed operations: ${summary.failed_operations}\\n\\n` +
-          `❌ Failures:\\n${failureMessages}\\n\\n` +
-          `ℹ️ This is likely due to blockchain connection issues. Participants still received certificates via email if email service is working.`
-        );
-      } else {
-        showStatus('success', 
-          `🎉 Certificate generation completed successfully!\\n\\n` +
-          `📊 Summary:\\n` +
-          `• Total participants: ${summary.total_participants}\\n` +
-          `• Certificates generated: ${summary.successful_certificates}\\n` +
-          `• Emails sent: ${summary.successful_emails}\\n` +
-          `• Failed operations: ${summary.failed_operations}\\n\\n` +
-          `✅ All certificate NFTs have been minted and emailed to participants!`
-        );
-      }
-      
-      // Refresh participant list to show updated status
-      queryClient.invalidateQueries({ queryKey: ['participants', selectedEventId] });
-      
-    } catch (error) {
-      console.error('Certificate generation error:', error);
-      showStatus('error', `❌ Certificate generation failed: ${(error as Error)?.message || String(error)}`);
-    } finally {
-      setLoadingStates(prev => ({ ...prev, [`cert-${eventId}`]: false }));
-    }
-  };
-
-  const showStatus = (type: string, message: string) => {
-    const statusTypes: { [key: string]: any } = {
-      'success': { title: 'Success', variant: undefined },
-      'error': { title: 'Error', variant: 'destructive' as const },
-      'loading': { title: 'Processing...', variant: undefined },
-      'warning': { title: 'Warning', variant: undefined },
-    };
-    const statusConfig = statusTypes[type] || statusTypes['error'];
-    toast({
-      title: statusConfig.title,
-      description: message,
-      variant: statusConfig.variant,
-    });
-  };
-
-  // Handle bulk mint success
+  // Handle transaction results
   useEffect(() => {
-    if (isBulkMintSuccess && bulkMintReceipt && selectedEventId) {
-      handleBulkMintSuccess(bulkMintReceipt, selectedEventId);
+    if (isBulkMintSuccess && bulkMintReceipt) {
+      handleBulkMintSuccess(bulkMintReceipt);
     }
-  }, [isBulkMintSuccess, bulkMintReceipt, selectedEventId]);
+  }, [isBulkMintSuccess, bulkMintReceipt]);
 
-  // Handle bulk mint error
   useEffect(() => {
     if (bulkMintError) {
-      showStatus('error', `Bulk mint transaction failed: ${bulkMintError?.message || String(bulkMintError)}`);
+      toast({
+        title: "Transaction failed",
+        description: `Bulk mint failed: ${bulkMintError?.message || String(bulkMintError)}`,
+        variant: "destructive",
+      });
     }
   }, [bulkMintError]);
 
-  // Handle batch transfer success
   useEffect(() => {
-    if (isBatchTransferSuccess && batchTransferReceipt && selectedEventId) {
-      handleBatchTransferSuccess(batchTransferReceipt, selectedEventId);
+    if (isBatchTransferSuccess && batchTransferReceipt) {
+      handleBatchTransferSuccess(batchTransferReceipt);
     }
-  }, [isBatchTransferSuccess, batchTransferReceipt, selectedEventId]);
+  }, [isBatchTransferSuccess, batchTransferReceipt]);
 
-  // Handle batch transfer error
   useEffect(() => {
     if (batchTransferError) {
-      showStatus('error', `Batch transfer transaction failed: ${batchTransferError?.message || String(batchTransferError)}`);
+      toast({
+        title: "Transaction failed",
+        description: `Batch transfer failed: ${batchTransferError?.message || String(batchTransferError)}`,
+        variant: "destructive",
+      });
     }
   }, [batchTransferError]);
 
-  const handleBulkMint = async (eventId: string) => {
+  const handleCreateEvent = () => {
     if (!isConnected || !address) {
-      showStatus('error', 'Please connect your wallet first');
+      toast({
+        title: "Please connect your wallet first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!eventForm.event_name || !eventForm.description) {
+      toast({
+        title: "Please fill in required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    createEventMutation.mutate({
+      ...eventForm,
+      organizer_wallet: address,
+    });
+  };
+
+  // Load participants for a specific event
+  const loadParticipants = async (eventId: number) => {
+    if (!session?.sessionToken) {
+      toast({
+        title: "Session expired",
+        description: "Please log in again",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      setLoadingStates(prev => ({...prev, [`participants-${eventId}`]: true}));
+      
+      const response = await fetch(`http://localhost:8000/participants/${eventId}?session_token=${session.sessionToken}&t=${Date.now()}`, {
+        cache: 'no-cache',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
+      
+      if (!response.ok) {
+        if (response.status === 401) {
+          toast({
+            title: "Session expired",
+            description: "Please log in again",
+            variant: "destructive",
+          });
+          handleLogout();
+          return;
+        }
+        throw new Error(`Failed to load participants: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setParticipants(prev => ({...prev, [eventId]: data.participants}));
+    } catch (error) {
+      console.error('Error loading participants:', error);
+      toast({
+        title: "Failed to load participants",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingStates(prev => ({...prev, [`participants-${eventId}`]: false}));
+    }
+  };
+
+  // Toggle participants view
+  const toggleParticipants = async (eventId: number) => {
+    const isExpanded = expandedEvents[eventId];
+    
+    if (!isExpanded) {
+      await loadParticipants(eventId);
+    }
+    
+    setExpandedEvents(prev => ({...prev, [eventId]: !isExpanded}));
+  };
+
+  // Handle bulk mint PoA
+  const handleBulkMint = async (eventId: number) => {
+    if (!isConnected || !address) {
+      toast({
+        title: "Please connect your wallet first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!session?.sessionToken) {
+      toast({
+        title: "Session expired",
+        description: "Please log in again",
+        variant: "destructive",
+      });
       return;
     }
 
     try {
-      showStatus('loading', 'Preparing bulk mint...');
+      setLoadingStates(prev => ({...prev, [`mint-${eventId}`]: true}));
       
-      const response = await fetch(`http://localhost:8000/bulk_mint_poa/${eventId}`, {
+      toast({
+        title: "Preparing bulk mint...",
+        description: "This may take a few moments",
+      });
+      
+      const response = await fetch(`http://localhost:8000/bulk_mint_poa/${eventId}?session_token=${session.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ organizer_wallet: address })
@@ -211,18 +491,24 @@ export default function OrganizerDashboard() {
 
       if (!response.ok) {
         const error = await response.json();
-        showStatus('error', error.detail || 'Failed to prepare bulk mint');
-        return;
+        throw new Error(error.detail || 'Failed to prepare bulk mint');
       }
 
       const result = await response.json();
       
       if (result.recipients.length === 0) {
-        showStatus('warning', 'No registered participants found for bulk minting.');
+        toast({
+          title: "No participants to mint",
+          description: "No registered participants found for bulk minting",
+          variant: "destructive",
+        });
         return;
       }
 
-      showStatus('loading', `Bulk minting ${result.participant_count} PoA NFTs... Please confirm in wallet`);
+      toast({
+        title: "Confirm transaction",
+        description: `Bulk minting ${result.participant_count} PoA NFTs... Please confirm in wallet`,
+      });
 
       // Store current event ID for success handler
       (window as any).currentBulkMintEventId = eventId;
@@ -232,40 +518,38 @@ export default function OrganizerDashboard() {
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
         functionName: 'bulkMintPoA',
-        args: [result.recipients, BigInt(eventId)]
+        args: [result.recipients, BigInt(eventId), result.ipfs_hash]
       });
 
     } catch (error) {
       console.error('Bulk mint error:', error);
-      showStatus('error', `Bulk mint failed: ${(error as Error)?.message || String(error)}`);
+      toast({
+        title: "Bulk mint failed",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingStates(prev => ({...prev, [`mint-${eventId}`]: false}));
     }
   };
 
-  const handleBulkMintSuccess = async (receipt: any, eventId: string) => {
-    console.log('🎯 handleBulkMintSuccess called with eventId:', eventId, 'receipt:', receipt);
+  // Handle bulk mint success
+  const handleBulkMintSuccess = async (receipt: any) => {
+    const eventId = (window as any).currentBulkMintEventId;
     
     try {
       // Extract token IDs from transaction receipt
       const tokenIds: number[] = [];
       
-      console.log('📋 Receipt logs:', receipt.logs);
-      
       if (receipt.logs) {
         for (const log of receipt.logs) {
-          console.log('🔍 Processing log:', log);
           try {
-            // Check if this is a PoAMinted event from our contract
             if (log.address?.toLowerCase() === CONTRACT_ADDRESS.toLowerCase()) {
-              console.log('✅ Found contract log with topics:', log.topics?.length, 'data:', log.data);
-              
-              // PoAMinted event has signature and recipient in topics, tokenId and eventId in data
               if (log.topics && log.topics.length >= 2 && log.data && log.data.length > 2) {
-                // Parse the data field which contains tokenId and eventId (both uint256)
                 const dataHex = log.data.slice(2);
-                if (dataHex.length >= 128) { // At least 2 * 32 bytes
-                  const tokenIdHex = dataHex.slice(0, 64); // First 32 bytes
+                if (dataHex.length >= 128) {
+                  const tokenIdHex = dataHex.slice(0, 64);
                   const tokenId = parseInt(tokenIdHex, 16);
-                  console.log('💎 Extracted tokenId:', tokenId, 'from hex:', tokenIdHex);
                   if (tokenId >= 0 && !tokenIds.includes(tokenId)) {
                     tokenIds.push(tokenId);
                   }
@@ -278,14 +562,12 @@ export default function OrganizerDashboard() {
         }
       }
 
-      console.log('🎖️ All extracted token IDs:', tokenIds);
-
       // Confirm with backend
-      const confirmResponse = await fetch(`http://localhost:8000/confirm_bulk_mint_poa`, {
+      const confirmResponse = await fetch(`http://localhost:8000/confirm_bulk_mint_poa?session_token=${session?.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          event_id: parseInt(eventId),
+          event_id: eventId,
           tx_hash: receipt.transactionHash,
           token_ids: tokenIds
         })
@@ -296,27 +578,52 @@ export default function OrganizerDashboard() {
         throw new Error(`Backend confirmation failed: ${errorData.detail || 'Unknown error'}`);
       }
 
-      showStatus('success', `✅ Successfully bulk minted PoA NFTs!\n\nTX Hash: ${receipt.transactionHash}\nToken IDs: ${tokenIds.join(', ')}\n\nNow you can batch transfer them to participants.`);
+      toast({
+        title: "Successfully bulk minted PoA NFTs!",
+        description: `TX Hash: ${receipt.transactionHash}\nToken IDs: ${tokenIds.join(', ')}\n\nNow you can batch transfer them to participants.`,
+      });
       
       // Refresh participant list
-      queryClient.invalidateQueries({ queryKey: ['participants', selectedEventId] });
+      await loadParticipants(eventId);
       
     } catch (error) {
       console.error('Error confirming bulk mint:', error);
-      showStatus('error', 'Bulk mint succeeded but confirmation failed');
+      toast({
+        title: "Confirmation failed",
+        description: "Bulk mint succeeded but confirmation failed",
+        variant: "destructive",
+      });
     }
   };
 
-  const handleBatchTransfer = async (eventId: string) => {
+  // Handle batch transfer
+  const handleBatchTransfer = async (eventId: number) => {
     if (!isConnected || !address) {
-      showStatus('error', 'Please connect your wallet first');
+      toast({
+        title: "Please connect your wallet first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!session?.sessionToken) {
+      toast({
+        title: "Session expired",
+        description: "Please log in again",
+        variant: "destructive",
+      });
       return;
     }
 
     try {
-      showStatus('loading', 'Preparing batch transfer...');
+      setLoadingStates(prev => ({...prev, [`transfer-${eventId}`]: true}));
       
-      const response = await fetch(`http://localhost:8000/batch_transfer_poa/${eventId}`, {
+      toast({
+        title: "Preparing batch transfer...",
+        description: "This may take a few moments",
+      });
+      
+      const response = await fetch(`http://localhost:8000/batch_transfer_poa/${eventId}?session_token=${session.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ organizer_wallet: address })
@@ -324,22 +631,27 @@ export default function OrganizerDashboard() {
 
       if (!response.ok) {
         if (response.status === 404) {
-          showStatus('error', `Event ID ${eventId} not found in database. This might happen if the event was created on blockchain but not properly saved to database. Please try refreshing the events list or contact support.`);
-        } else {
-          const error = await response.json();
-          showStatus('error', error.detail || 'Failed to prepare batch transfer');
+          throw new Error(`Event ID ${eventId} not found in database`);
         }
-        return;
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to prepare batch transfer');
       }
 
       const result = await response.json();
       
       if (result.recipients.length === 0) {
-        showStatus('warning', 'No minted PoA NFTs ready for transfer.');
+        toast({
+          title: "No NFTs to transfer",
+          description: "No minted PoA NFTs ready for transfer",
+          variant: "destructive",
+        });
         return;
       }
 
-      showStatus('loading', `Batch transferring ${result.transfer_count} PoA NFTs... Please confirm in wallet`);
+      toast({
+        title: "Confirm transaction",
+        description: `Batch transferring ${result.transfer_count} PoA NFTs... Please confirm in wallet`,
+      });
 
       // Store current event ID for success handler
       (window as any).currentBatchTransferEventId = eventId;
@@ -354,65 +666,205 @@ export default function OrganizerDashboard() {
 
     } catch (error) {
       console.error('Batch transfer error:', error);
-      showStatus('error', `Batch transfer failed: ${(error as Error)?.message || String(error)}`);
+      toast({
+        title: "Batch transfer failed",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingStates(prev => ({...prev, [`transfer-${eventId}`]: false}));
     }
   };
 
-  const handleBatchTransferSuccess = async (receipt: any, eventId: string) => {
+  // Handle batch transfer success
+  const handleBatchTransferSuccess = async (receipt: any) => {
+    const eventId = (window as any).currentBatchTransferEventId;
+    
     try {
       // Confirm with backend
-      await fetch(`http://localhost:8000/confirm_batch_transfer_poa`, {
+      await fetch(`http://localhost:8000/confirm_batch_transfer_poa?session_token=${session?.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          event_id: parseInt(eventId),
+          event_id: eventId,
           tx_hash: receipt.transactionHash
         })
       });
 
-      showStatus('success', `✅ Successfully batch transferred PoA NFTs!\n\nTX Hash: ${receipt.transactionHash}\n\nParticipants now own their PoA NFTs!`);
+      toast({
+        title: "Successfully batch transferred PoA NFTs!",
+        description: `TX Hash: ${receipt.transactionHash}\n\nParticipants now own their PoA NFTs!`,
+      });
       
       // Refresh participant list
-      queryClient.invalidateQueries({ queryKey: ['participants', selectedEventId] });
+      await loadParticipants(eventId);
       
     } catch (error) {
       console.error('Error confirming batch transfer:', error);
-      showStatus('error', 'Batch transfer succeeded but confirmation failed');
+      toast({
+        title: "Confirmation failed",
+        description: "Batch transfer succeeded but confirmation failed",
+        variant: "destructive",
+      });
     }
   };
 
-  const handleCreateEvent = () => {
-    if (!isConnected || !address) {
+  // Generate certificates for all PoA holders
+  const handleGenerateCertificates = async (eventId: number) => {
+    if (!session?.sessionToken) {
       toast({
-        title: "Please connect your wallet first",
+        title: "Session expired",
+        description: "Please log in again",
         variant: "destructive",
       });
       return;
     }
-
-    if (!newEvent.event_name || !newEvent.description) {
+    
+    try {
+      setLoadingStates(prev => ({ ...prev, [`cert-${eventId}`]: true }));
+      
       toast({
-        title: "Please fill in required fields",
+        title: "Generating certificates...",
+        description: "Generating certificates for all PoA holders",
+      });
+      
+      const response = await fetch(`http://localhost:8000/bulk_generate_certificates/${eventId}?session_token=${session.sessionToken}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to generate certificates');
+      }
+
+      const summary = result.summary;
+      
+      if (summary.failed_operations > 0) {
+        const failureDetails = result.details?.filter((d: any) => !d.success) || [];
+        const failureMessages = failureDetails.map((d: any) => `• ${d.participant}: ${d.step} failed - ${d.error}`).join('\n');
+        
+        toast({
+          title: "Certificate generation completed with issues",
+          description: `Total: ${summary.total_participants}\nGenerated: ${summary.successful_certificates}\nEmailed: ${summary.successful_emails}\nFailed: ${summary.failed_operations}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Certificate generation completed!",
+          description: `Total: ${summary.total_participants}\nGenerated: ${summary.successful_certificates}\nEmailed: ${summary.successful_emails}`,
+        });
+      }
+      
+      // Refresh participant list
+      await loadParticipants(eventId);
+      
+    } catch (error) {
+      console.error('Certificate generation error:', error);
+      toast({
+        title: "Certificate generation failed",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingStates(prev => ({ ...prev, [`cert-${eventId}`]: false }));
+    }
+  };
+
+  // Check certificate status
+  const handleCheckCertificateStatus = async (eventId: number) => {
+    if (!session?.sessionToken) {
+      toast({
+        title: "Session expired",
+        description: "Please log in again",
         variant: "destructive",
       });
       return;
     }
+    
+    try {
+      setLoadingStates(prev => ({ ...prev, [`status-${eventId}`]: true }));
+      
+      const response = await fetch(`http://localhost:8000/certificate_status/${eventId}?session_token=${session.sessionToken}`);
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to check certificate status');
+      }
 
-    createEventMutation.mutate({
-      ...newEvent,
-      organizer_wallet: address,
-    });
+      toast({
+        title: `Certificate Status - "${result.event_name}"`,
+        description: `Total participants: ${result.total_participants}\nPoA holders: ${result.poa_holders}\nCertificates minted: ${result.certificates_minted}\nCertificates pending: ${result.certificates_pending}\n\n${result.ready_for_bulk_generation ? '✅ Ready for bulk generation!' : '⚠️ Not ready - participants need PoA tokens first'}`,
+      });
+      
+    } catch (error) {
+      console.error('Certificate status error:', error);
+      toast({
+        title: "Failed to check certificate status",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingStates(prev => ({ ...prev, [`status-${eventId}`]: false }));
+    }
   };
 
-  const copyEventCode = async (eventCode: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent event card click
+  // Toggle event active status
+  const handleToggleEventStatus = async (eventId: number, currentStatus: boolean) => {
+    if (!session?.sessionToken) {
+      toast({
+        title: "Session expired",
+        description: "Please log in again",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      setLoadingStates(prev => ({ ...prev, [`toggle-${eventId}`]: true }));
+      
+      const response = await fetch(`http://localhost:8000/toggle_event_status/${eventId}?session_token=${session.sessionToken}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !currentStatus })
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to toggle event status');
+      }
+
+      toast({
+        title: "Event status updated",
+        description: `Event is now ${!currentStatus ? 'active' : 'inactive'}`,
+      });
+      
+      // Refresh events list
+      refetchEvents();
+      
+    } catch (error) {
+      console.error('Toggle event status error:', error);
+      toast({
+        title: "Failed to update event status",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingStates(prev => ({ ...prev, [`toggle-${eventId}`]: false }));
+    }
+  };
+
+  // Copy event code to clipboard
+  const copyEventCode = async (eventCode: string) => {
     try {
       await navigator.clipboard.writeText(eventCode);
       toast({
-        title: "Event code copied!",
+        title: "Copied!",
         description: `Event code ${eventCode} copied to clipboard`,
       });
-    } catch (err) {
+    } catch (error) {
       // Fallback for older browsers
       const textArea = document.createElement('textarea');
       textArea.value = eventCode;
@@ -421,70 +873,219 @@ export default function OrganizerDashboard() {
       document.execCommand('copy');
       document.body.removeChild(textArea);
       toast({
-        title: "Event code copied!",
+        title: "Copied!",
         description: `Event code ${eventCode} copied to clipboard`,
       });
     }
   };
 
-  const EventCard = ({ event }: { event: Event }) => (
-    <Card className="cursor-pointer transition-all duration-200 hover:border-primary/50" 
-          onClick={() => setSelectedEventId(event.id.toString())}>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">{event.event_name}</CardTitle>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="font-mono">
-              Code: {event.event_code}
-            </Badge>
-            <Badge variant="secondary" className="font-mono text-xs">
-              ID: {event.id}
-            </Badge>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 w-6 p-0 hover:bg-primary/10"
-              onClick={(e) => copyEventCode(event.event_code, e)}
-              title="Copy event code"
-            >
-              <Copy className="h-3 w-3" />
-            </Button>
-          </div>
+  // Render participant details
+  const renderParticipants = (eventId: number) => {
+    if (loadingStates[`participants-${eventId}`]) {
+      return (
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mr-3"></div>
+          Loading participants...
         </div>
-        <CardDescription>{event.description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-primary" />
-            <span>{event.participants_count || 0} participants</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Award className="h-4 w-4 text-primary" />
-            <span>{event.certificates_issued || 0} certificates</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs">📅 {event.event_date}</span>
-          </div>
-        </div>
-        {event.sponsors && (
-          <div className="mt-3 pt-3 border-t border-border">
-            <p className="text-xs text-muted-foreground">
-              Sponsored by <span className="font-medium">{event.sponsors}</span>
-            </p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+      );
+    }
 
+    const eventParticipants = participants[eventId] || [];
+    
+    if (eventParticipants.length === 0) {
+      return (
+        <div className="text-center py-8 text-muted-foreground">
+          No participants found for this event.
+        </div>
+      );
+    }
+
+    // Calculate statistics
+    const total = eventParticipants.length;
+    const registered = eventParticipants.filter(p => p.poa_status === 'registered').length;
+    const minted = eventParticipants.filter(p => p.poa_status === 'minted').length;
+    const transferred = eventParticipants.filter(p => p.poa_status === 'transferred').length;
+    const certificates = eventParticipants.filter(p => p.certificate_status === 'completed' || p.certificate_status === 'transferred').length;
+
+    return (
+      <div className="space-y-4">
+        {/* Statistics */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 bg-muted/50 rounded-lg">
+          <div className="text-center">
+            <div className="text-2xl font-bold">{total}</div>
+            <div className="text-xs text-muted-foreground">Total</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-yellow-600">{registered}</div>
+            <div className="text-xs text-muted-foreground">Registered</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-blue-600">{minted}</div>
+            <div className="text-xs text-muted-foreground">Minted</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-green-600">{transferred}</div>
+            <div className="text-xs text-muted-foreground">Transferred</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-purple-600">{certificates}</div>
+            <div className="text-xs text-muted-foreground">Certificates</div>
+          </div>
+        </div>
+
+        {/* Participants Table */}
+        <div className="rounded-md border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-muted">
+                <tr>
+                  <th className="px-4 py-2 text-left text-sm font-medium">Name</th>
+                  <th className="px-4 py-2 text-left text-sm font-medium">Email</th>
+                  <th className="px-4 py-2 text-left text-sm font-medium">Team</th>
+                  <th className="px-4 py-2 text-left text-sm font-medium">Wallet</th>
+                  <th className="px-4 py-2 text-left text-sm font-medium">PoA Status</th>
+                  <th className="px-4 py-2 text-left text-sm font-medium">Cert Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {eventParticipants.map((participant, index) => {
+                  const getPoABadge = () => {
+                    switch(participant.poa_status) {
+                      case 'registered':
+                        return <Badge variant="secondary" className="text-xs">📝 Registered</Badge>;
+                      case 'minted':
+                        return <Badge variant="default" className="text-xs">🏭 Minted #{participant.poa_token_id}</Badge>;
+                      case 'transferred':
+                        return <Badge variant="default" className="text-xs bg-green-100 text-green-800">✅ Transferred #{participant.poa_token_id}</Badge>;
+                      default:
+                        return <Badge variant="destructive" className="text-xs">❓ Unknown</Badge>;
+                    }
+                  };
+
+                  const getCertBadge = () => {
+                    switch(participant.certificate_status) {
+                      case 'not_eligible':
+                        return <Badge variant="outline" className="text-xs">⏳ Not Eligible</Badge>;
+                      case 'eligible':
+                        return <Badge variant="secondary" className="text-xs">🎯 Eligible</Badge>;
+                      case 'completed':
+                        return <Badge variant="default" className="text-xs">✅ Completed #{participant.certificate_token_id}</Badge>;
+                      case 'transferred':
+                        return <Badge variant="default" className="text-xs bg-green-100 text-green-800">🏆 Transferred #{participant.certificate_token_id}</Badge>;
+                      default:
+                        return <Badge variant="destructive" className="text-xs">❓ {participant.certificate_status}</Badge>;
+                    }
+                  };
+
+                  return (
+                    <tr key={index} className="hover:bg-muted/50">
+                      <td className="px-4 py-2 text-sm">{participant.name}</td>
+                      <td className="px-4 py-2 text-sm">{participant.email}</td>
+                      <td className="px-4 py-2 text-sm">{participant.team_name || 'N/A'}</td>
+                      <td className="px-4 py-2 text-sm font-mono" title={participant.wallet_address}>
+                        {participant.wallet_address.substring(0, 6)}...{participant.wallet_address.slice(-4)}
+                      </td>
+                      <td className="px-4 py-2">{getPoABadge()}</td>
+                      <td className="px-4 py-2">{getCertBadge()}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Login UI
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <CardTitle className="text-2xl">Organizer Login</CardTitle>
+            <CardDescription>
+              {loginStep === 'email' 
+                ? 'Enter your authorized organizer email' 
+                : 'Enter the OTP code sent to your email'
+              }
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loginStep === 'email' ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email Address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    placeholder="organizer@0x.day"
+                    onKeyDown={(e) => e.key === 'Enter' && handleSendOTP()}
+                  />
+                </div>
+                <Button 
+                  onClick={handleSendOTP}
+                  disabled={isSubmitting}
+                  className="w-full"
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  {isSubmitting ? 'Sending...' : 'Send OTP Code'}
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="otp">OTP Code</Label>
+                  <Input
+                    id="otp"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    placeholder="123456"
+                    maxLength={6}
+                    onKeyDown={(e) => e.key === 'Enter' && handleVerifyOTP()}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Check your email: {loginEmail}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Button 
+                    onClick={handleVerifyOTP}
+                    disabled={isSubmitting}
+                    className="w-full"
+                  >
+                    {isSubmitting ? 'Verifying...' : 'Verify & Login'}
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      setLoginStep('email');
+                      setOtpCode('');
+                    }}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    Back to Email
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Main authenticated dashboard
   if (eventsLoading) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Loading events...</p>
+            <p className="text-muted-foreground">Loading dashboard...</p>
           </div>
         </div>
       </div>
@@ -494,21 +1095,97 @@ export default function OrganizerDashboard() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-6xl mx-auto space-y-6">
+        {/* Header with user info and controls */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-4xl font-bold gradient-text">Organizer Dashboard</h1>
-            <p className="text-muted-foreground">Manage events and participants</p>
+            <p className="text-muted-foreground">
+              Welcome, {session?.email}
+              {session?.isRoot && <Badge className="ml-2" variant="default">Root Admin</Badge>}
+            </p>
           </div>
-          <Button 
-            onClick={() => setShowCreateEvent(true)}
-            variant="web3"
-            className="flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Create Event
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setShowEmailManagement(true)}
+              variant="outline"
+              size="sm"
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              Manage Organizers
+            </Button>
+            <Button 
+              onClick={() => setShowCreateEvent(true)}
+              variant="web3"
+              size="sm"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Create Event
+            </Button>
+            <Button
+              onClick={handleLogout}
+              variant="ghost"
+              size="sm"
+            >
+              Logout
+            </Button>
+          </div>
         </div>
 
+        {/* Email Management Dialog */}
+        <Dialog open={showEmailManagement} onOpenChange={setShowEmailManagement}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Manage Organizer Emails</DialogTitle>
+              <DialogDescription>
+                Add or remove organizer email addresses. Root emails cannot be removed.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              {/* Add new email */}
+              <div className="flex gap-2">
+                <Input
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="new.organizer@example.com"
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddEmail()}
+                />
+                <Button onClick={handleAddEmail}>Add Email</Button>
+              </div>
+
+              {/* Email list */}
+              <div className="space-y-2">
+                <h4 className="font-medium">Current Organizers</h4>
+                <div className="max-h-64 overflow-y-auto border rounded-md">
+                  {organizerEmails.map((email) => (
+                    <div key={email.email} className="flex items-center justify-between p-3 border-b last:border-b-0">
+                      <div className="flex items-center gap-2">
+                        <span>{email.email}</span>
+                        {email.is_root && (
+                          <Badge variant="default" className="text-xs">
+                            <Shield className="h-3 w-3 mr-1" />
+                            Root
+                          </Badge>
+                        )}
+                      </div>
+                      {!email.is_root && (
+                        <Button
+                          onClick={() => handleRemoveEmail(email.email)}
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Create Event Form */}
         {showCreateEvent && (
           <Card>
             <CardHeader>
@@ -521,19 +1198,82 @@ export default function OrganizerDashboard() {
                   <Label htmlFor="event-name">Event Name *</Label>
                   <Input
                     id="event-name"
-                    value={newEvent.event_name}
-                    onChange={(e) => setNewEvent(prev => ({ ...prev, event_name: e.target.value }))}
+                    value={eventForm.event_name}
+                    onChange={(e) => setEventForm(prev => ({ ...prev, event_name: e.target.value }))}
                     placeholder="Web3 Hackathon 2024"
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="event-date">Event Date</Label>
-                  <Input
-                    type="date"
-                    id="event-date"
-                    value={newEvent.event_date}
-                    onChange={(e) => setNewEvent(prev => ({ ...prev, event_date: e.target.value }))}
-                  />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !eventForm.event_date && "text-muted-foreground"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {eventForm.event_date ? (
+                          format(new Date(eventForm.event_date), "PPP")
+                        ) : (
+                          <span>Pick a date</span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-4" align="start">
+                      <div className="space-y-4">
+                        <div className="flex space-x-2">
+                          <div className="flex-1">
+                            <Label className="text-sm">Month</Label>
+                            <Select value={selectedMonth.toString()} onValueChange={(value) => setSelectedMonth(parseInt(value))}>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Array.from({ length: 12 }, (_, i) => (
+                                  <SelectItem key={i} value={i.toString()}>
+                                    {new Date(2024, i, 1).toLocaleDateString('en-US', { month: 'long' })}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex-1">
+                            <Label className="text-sm">Year</Label>
+                            <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Array.from({ length: 11 }, (_, i) => (
+                                  <SelectItem key={i} value={(2020 + i).toString()}>
+                                    {2020 + i}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <CalendarComponent
+                          mode="single"
+                          selected={eventForm.event_date ? new Date(eventForm.event_date) : undefined}
+                          onSelect={(date) => {
+                            if (date) {
+                              setEventForm(prev => ({ ...prev, event_date: format(date, "yyyy-MM-dd") }));
+                            }
+                          }}
+                          month={new Date(selectedYear, selectedMonth)}
+                          onMonthChange={(date) => {
+                            setSelectedMonth(date.getMonth());
+                            setSelectedYear(date.getFullYear());
+                          }}
+                          initialFocus
+                        />
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
 
@@ -541,8 +1281,8 @@ export default function OrganizerDashboard() {
                 <Label htmlFor="sponsors">Sponsors (comma-separated)</Label>
                 <Input
                   id="sponsors"
-                  value={newEvent.sponsors}
-                  onChange={(e) => setNewEvent(prev => ({ ...prev, sponsors: e.target.value }))}
+                  value={eventForm.sponsors}
+                  onChange={(e) => setEventForm(prev => ({ ...prev, sponsors: e.target.value }))}
                   placeholder="Sponsor1, Sponsor2, Sponsor3"
                 />
               </div>
@@ -551,13 +1291,12 @@ export default function OrganizerDashboard() {
                 <Label htmlFor="event-description">Description *</Label>
                 <Textarea
                   id="event-description"
-                  value={newEvent.description}
-                  onChange={(e) => setNewEvent(prev => ({ ...prev, description: e.target.value }))}
+                  value={eventForm.description}
+                  onChange={(e) => setEventForm(prev => ({ ...prev, description: e.target.value }))}
                   placeholder="A comprehensive Web3 hackathon focused on DeFi innovation..."
                   rows={3}
                 />
               </div>
-
 
               <div className="flex gap-2">
                 <Button 
@@ -578,189 +1317,141 @@ export default function OrganizerDashboard() {
           </Card>
         )}
 
-        {selectedEventId ? (
-          // Event Details View
-          <div className="space-y-6">
-            <div className="flex items-center gap-4">
-              <Button 
-                onClick={() => setSelectedEventId(null)}
-                variant="outline"
-              >
-                ← Back to Events
-              </Button>
-              <div>
-                <h2 className="text-2xl font-bold">
-                  {events.find(e => e.id === selectedEventId)?.name}
-                </h2>
-                <p className="text-muted-foreground">
-                  {participants.length} participants registered
-                </p>
-              </div>
-            </div>
+        {/* Events Grid */}
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-2xl font-bold mb-2">Your Events</h2>
+            <p className="text-muted-foreground">Click on an event to manage participants</p>
+          </div>
 
-            <div className="grid md:grid-cols-3 gap-4">
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-3">
-                    <BarChart3 className="h-8 w-8 text-primary" />
-                    <div>
-                      <p className="text-2xl font-bold">{participants.length}</p>
-                      <p className="text-sm text-muted-foreground">Total Participants</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-3">
-                    <Award className="h-8 w-8 text-primary" />
-                    <div>
-                      <p className="text-2xl font-bold">
-                        {participants.filter(p => p.poa_status === 'minted' || p.poa_status === 'transferred').length}
-                      </p>
-                      <p className="text-sm text-muted-foreground">PoAs Minted</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-3">
-                    <Send className="h-8 w-8 text-primary" />
-                    <div>
-                      <p className="text-2xl font-bold">
-                        {participants.filter(p => p.certificate_status === 'completed' || p.certificate_status === 'transferred').length}
-                      </p>
-                      <p className="text-sm text-muted-foreground">Certificates Issued</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
+          {events.length === 0 ? (
             <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Bulk Actions</CardTitle>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => handleBulkMint(selectedEventId)}
-                      disabled={isBulkMintLoading || isBulkMintWaiting}
-                      variant="outline"
-                      size="sm"
-                    >
-                      {(isBulkMintLoading || isBulkMintWaiting) ? 'Minting...' : 'Bulk Mint PoAs'}
-                    </Button>
-                    <Button
-                      onClick={() => handleBatchTransfer(selectedEventId)}
-                      disabled={isBatchTransferLoading || isBatchTransferWaiting}
-                      variant="outline"
-                      size="sm"
-                    >
-                      {(isBatchTransferLoading || isBatchTransferWaiting) ? 'Transferring...' : 'Batch Transfer PoAs'}
-                    </Button>
-                    <Button
-                      onClick={() => handleGenerateCertificates(selectedEventId)}
-                      disabled={loadingStates[`cert-${selectedEventId}`]}
-                      variant="outline"
-                      size="sm"
-                    >
-                      {loadingStates[`cert-${selectedEventId}`] ? 'Generating...' : 'Generate Certificates'}
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-md border">
-                  <div className="grid grid-cols-6 gap-4 p-4 border-b border-border bg-muted/20 text-sm font-medium">
-                    <span>Name</span>
-                    <span>Email</span>
-                    <span>Team</span>
-                    <span>Wallet</span>
-                    <span>PoA</span>
-                    <span>Certificate</span>
-                  </div>
-                  <div className="max-h-96 overflow-y-auto">
-                    {participantsLoading ? (
-                      <div className="p-8 text-center text-muted-foreground">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-2"></div>
-                        Loading participants...
-                      </div>
-                    ) : participants.length === 0 ? (
-                      <div className="p-8 text-center text-muted-foreground">
-                        No participants found for this event.
-                      </div>
-                    ) : (
-                      participants.map((participant, index) => (
-                        <div key={`${participant.wallet_address}-${index}`} className="grid grid-cols-6 gap-4 p-4 border-b border-border last:border-b-0">
-                          <span className="font-medium">{participant.name}</span>
-                          <span className="text-muted-foreground">{participant.email}</span>
-                          <span className="text-muted-foreground">{participant.team_name || '-'}</span>
-                          <span 
-                            className="text-muted-foreground font-mono text-xs"
-                            title={participant.wallet_address}
-                          >
-                            {participant.wallet_address.substring(0, 6)}...{participant.wallet_address.slice(-4)}
-                          </span>
-                          <Badge 
-                            variant={participant.poa_status === 'transferred' || participant.poa_status === 'minted' ? 'default' : 'secondary'} 
-                            className="w-fit"
-                          >
-                            {participant.poa_status === 'transferred' ? `Transferred #${participant.poa_token_id}` : 
-                             participant.poa_status === 'minted' ? `Minted #${participant.poa_token_id}` : 
-                             participant.poa_status === 'registered' ? 'Registered' : 'Pending'}
-                          </Badge>
-                          <Badge 
-                            variant={participant.certificate_status === 'transferred' || participant.certificate_status === 'completed' ? 'default' : 'secondary'} 
-                            className="w-fit"
-                          >
-                            {participant.certificate_status === 'transferred' ? `Transferred #${participant.certificate_token_id}` : 
-                             participant.certificate_status === 'completed' ? `Completed #${participant.certificate_token_id}` : 
-                             participant.certificate_status === 'eligible' ? 'Eligible' : 'Not Eligible'}
-                          </Badge>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+              <CardContent className="p-12 text-center">
+                <Users className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-xl font-semibold mb-2">No events yet</h3>
+                <p className="text-muted-foreground mb-6">
+                  Create your first event to start managing participants and certificates
+                </p>
+                <Button 
+                  onClick={() => setShowCreateEvent(true)}
+                  variant="web3"
+                >
+                  Create Your First Event
+                </Button>
               </CardContent>
             </Card>
-          </div>
-        ) : (
-          // Events Grid View
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold mb-2">Your Events</h2>
-              <p className="text-muted-foreground">Click on an event to manage participants</p>
-            </div>
+          ) : (
+            <div className="space-y-6">
+              {events.map((event) => (
+                <Card key={event.id} className="transition-all duration-200">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <CardTitle className="text-lg">{event.event_name}</CardTitle>
+                          <Badge variant={event.is_active ? "default" : "secondary"} className="text-xs">
+                            {event.is_active ? '✅ Active' : '❌ Inactive'}
+                          </Badge>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleEventStatus(event.id, event.is_active);
+                            }}
+                            disabled={loadingStates[`toggle-${event.id}`]}
+                            className="h-6 px-2 text-xs"
+                          >
+                            {loadingStates[`toggle-${event.id}`] ? 'Updating...' : event.is_active ? 'Deactivate' : 'Activate'}
+                          </Button>
+                        </div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge variant="outline" className="font-mono text-xs">
+                            {event.event_code}
+                          </Badge>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              copyEventCode(event.event_code);
+                            }}
+                            className="h-6 px-2 text-xs"
+                          >
+                            <Copy className="h-3 w-3 mr-1" />
+                            Copy
+                          </Button>
+                          <span className="text-xs text-muted-foreground">ID: {event.id}</span>
+                        </div>
+                        {event.event_date && (
+                          <p className="text-sm text-muted-foreground">📅 {event.event_date}</p>
+                        )}
+                        <CardDescription className="mt-2">{event.description}</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => toggleParticipants(event.id)}
+                      >
+                        <Users className="h-4 w-4 mr-2" />
+                        {expandedEvents[event.id] ? 'Hide' : 'View'} Participants
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleBulkMint(event.id)}
+                        disabled={loadingStates[`mint-${event.id}`] || isBulkMintLoading || isBulkMintWaiting}
+                      >
+                        <Factory className="h-4 w-4 mr-2" />
+                        {(loadingStates[`mint-${event.id}`] || isBulkMintLoading || isBulkMintWaiting) ? 'Minting...' : 'Bulk Mint PoA'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleBatchTransfer(event.id)}
+                        disabled={loadingStates[`transfer-${event.id}`] || isBatchTransferLoading || isBatchTransferWaiting}
+                      >
+                        <Send className="h-4 w-4 mr-2" />
+                        {(loadingStates[`transfer-${event.id}`] || isBatchTransferLoading || isBatchTransferWaiting) ? 'Transferring...' : 'Batch Transfer'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleGenerateCertificates(event.id)}
+                        disabled={loadingStates[`cert-${event.id}`]}
+                      >
+                        <Award className="h-4 w-4 mr-2" />
+                        {loadingStates[`cert-${event.id}`] ? 'Generating...' : 'Generate Certificates'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleCheckCertificateStatus(event.id)}
+                        disabled={loadingStates[`status-${event.id}`]}
+                      >
+                        <BarChart3 className="h-4 w-4 mr-2" />
+                        {loadingStates[`status-${event.id}`] ? 'Checking...' : 'Certificate Status'}
+                      </Button>
+                    </div>
 
-            {events.length === 0 ? (
-              <Card>
-                <CardContent className="p-12 text-center">
-                  <Users className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold mb-2">No events yet</h3>
-                  <p className="text-muted-foreground mb-6">
-                    Create your first event to start managing participants and certificates
-                  </p>
-                  <Button 
-                    onClick={() => setShowCreateEvent(true)}
-                    variant="web3"
-                  >
-                    Create Your First Event
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {events.map((event) => (
-                  <EventCard key={event.id} event={event} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+                    {/* Participants Section */}
+                    {expandedEvents[event.id] && (
+                      <div className="border-t pt-4">
+                        <h4 className="font-semibold mb-3">Participants</h4>
+                        {renderParticipants(event.id)}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
