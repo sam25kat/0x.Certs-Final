@@ -34,7 +34,7 @@ class EmailService:
         with open(self.tracking_file, 'a') as f:
             f.write(f"{email_key}\n")
 
-    def send_certificate_email(self, to_email, participant_name, event_name, certificate_path, contract_address, token_id):
+    def send_certificate_email(self, to_email, participant_name, event_name, certificate_path, contract_address, token_id, poa_token_id=None):
         """Send certificate email with attachment and wallet instructions"""
         try:
             # Check if email was already sent
@@ -88,6 +88,36 @@ class EmailService:
         
         <div class="highlight">
             Your certificate for participating in <strong>{event_name}</strong> has been minted as an NFT and is ready for you to claim!
+        </div>
+
+        <div class="section">
+            <div class="section-title">Proof of Attendance (PoA) NFT</div>
+            <div class="info-box">
+                <strong>You also received a PoA NFT for attending this event!</strong><br><br>
+                <strong>PoA Contract Address:</strong><br>
+                <div class="contract-info">{contract_address}</div><br>
+                <strong>PoA Token ID:</strong> <span style="font-size: 18px; font-weight: bold; color: #ff6600;">{poa_token_id}</span><br>
+                <strong>Note:</strong> Your PoA NFT was minted when you registered/attended the event.
+            </div>
+            
+            <div class="wallet-section">
+                <h4 style="color: #ff6600; margin-bottom: 15px;">Import Your PoA NFT (MetaMask):</h4>
+                <div class="step">
+                    <span class="step-number" style="background: #ff6600;">1</span> Open MetaMask → NFTs tab
+                </div>
+                <div class="step">
+                    <span class="step-number" style="background: #ff6600;">2</span> Click "Import NFT"
+                </div>
+                <div class="step">
+                    <span class="step-number" style="background: #ff6600;">3</span> Enter Contract Address: <code style="background: #fff0e6; padding: 2px 5px;">{contract_address}</code>
+                </div>
+                <div class="step">
+                    <span class="step-number" style="background: #ff6600;">4</span> Enter Token ID: <strong>{poa_token_id}</strong>
+                </div>
+                <div class="step">
+                    <span class="step-number" style="background: #ff6600;">5</span> Click "Import" - Your PoA logo should appear!
+                </div>
+            </div>
         </div>
 
         <div class="section">
@@ -162,13 +192,16 @@ class EmailService:
         <div class="next-steps">
             <div style="font-size: 18px; font-weight: bold; margin-bottom: 15px;">Next Steps</div>
             <div class="step" style="color: white;">
-                <span class="step-number" style="background: rgba(255,255,255,0.2);">1</span> Add the NFT to your wallet using the instructions above
+                <span class="step-number" style="background: rgba(255,165,0,0.8);">1</span> Import your PoA NFT using the instructions above
             </div>
             <div class="step" style="color: white;">
-                <span class="step-number" style="background: rgba(255,255,255,0.2);">2</span> Share your certificate on social media platforms
+                <span class="step-number" style="background: rgba(255,255,255,0.2);">2</span> Add the Certificate NFT to your wallet using the instructions above
             </div>
             <div class="step" style="color: white;">
-                <span class="step-number" style="background: rgba(255,255,255,0.2);">3</span> Keep this certificate as proof of your participation
+                <span class="step-number" style="background: rgba(255,255,255,0.2);">3</span> Share your certificates on social media platforms
+            </div>
+            <div class="step" style="color: white;">
+                <span class="step-number" style="background: rgba(255,255,255,0.2);">4</span> Keep these NFTs as proof of your participation and achievement
             </div>
         </div>
 
@@ -194,6 +227,20 @@ class EmailService:
 Dear {participant_name},
 
 Your certificate for participating in {event_name} has been minted as an NFT and is ready for you to claim.
+
+Proof of Attendance (PoA) NFT
+You also received a PoA NFT for attending this event!
+
+PoA Contract Address: {contract_address}
+PoA Token ID: {poa_token_id}
+Note: Your PoA NFT was minted when you registered/attended the event.
+
+Import Your PoA NFT (MetaMask):
+1. Open MetaMask → NFTs tab
+2. Click "Import NFT"
+3. Enter Contract Address: {contract_address}
+4. Enter Token ID: {poa_token_id}
+5. Click "Import" - Your PoA logo should appear!
 
 Certificate Details
 Event: {event_name}
@@ -225,9 +272,10 @@ Certificate Attachment
 Your certificate is also attached as a JPG image for your records.
 
 Next Steps
-1. Add the NFT to your wallet using the instructions above
-2. Share your certificate on social media platforms
-3. Keep this certificate as proof of your participation
+1. Import your PoA NFT using the instructions above
+2. Add the Certificate NFT to your wallet using the instructions above
+3. Share your certificates on social media platforms
+4. Keep these NFTs as proof of your participation and achievement
 
 Thank you for being part of {event_name}.
 
@@ -303,7 +351,8 @@ For assistance or inquiries, please contact the event organizers.
                 event_name=event_name,
                 certificate_path=participant['certificate_path'],
                 contract_address=contract_address,
-                token_id=participant['token_id']
+                token_id=participant['token_id'],
+                poa_token_id=participant.get('poa_token_id')  # Add PoA token ID
             )
             
             results.append({

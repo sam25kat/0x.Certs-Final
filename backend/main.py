@@ -918,24 +918,41 @@ async def register_participant(participant: ParticipantRegister):
         event_id, event_name = event
         print(f"Found event: {event_name} (ID: {event_id})")
         
-        # Check if participant already registered
+        # Check if this wallet address is already used for this event
         cursor.execute(
-            "SELECT id, poa_minted FROM participants WHERE wallet_address = ? AND event_id = ?",
+            "SELECT id, name, email, poa_minted FROM participants WHERE wallet_address = ? AND event_id = ?",
             (participant.wallet_address, event_id)
         )
         
         existing = cursor.fetchone()
         if existing:
-            participant_id, poa_minted = existing
-            print(f"ℹ️ User already registered: {participant.wallet_address}")
-            return {
-                "message": f"Already registered for '{event_name}'. Use frontend to mint your PoA NFT.",
-                "participant_id": participant_id,
-                "event_name": event_name,
-                "event_id": event_id,
-                "poa_minted": poa_minted,
-                "registration_complete": True
-            }
+            participant_id, existing_name, existing_email, poa_minted = existing
+            
+            # Check if it's the same person (same name and email) trying to register again
+            if existing_name.lower() == participant.name.lower() and existing_email.lower() == participant.email.lower():
+                print(f"ℹ️ Same user already registered: {participant.wallet_address}")
+                return {
+                    "message": f"Already registered for '{event_name}'. Use frontend to mint your PoA NFT.",
+                    "participant_id": participant_id,
+                    "event_name": event_name,
+                    "event_id": event_id,
+                    "poa_minted": poa_minted,
+                    "registration_complete": True
+                }
+            else:
+                # Different person trying to use the same wallet address
+                print(f"❌ Wallet address already in use: {participant.wallet_address} by {existing_name} ({existing_email})")
+                raise HTTPException(
+                    status_code=400, 
+                    detail={
+                        "error": "WALLET_ADDRESS_IN_USE",
+                        "message": f"This wallet address is already registered for this event by another participant: {existing_name} ({existing_email}). Each participant must use a unique wallet address.",
+                        "existing_participant": {
+                            "name": existing_name,
+                            "email": existing_email
+                        }
+                    }
+                )
         
         # Register new participant
         print(f"📝 Registering new participant: {participant.name}")
@@ -1582,9 +1599,9 @@ async def send_emails(event_id: int):
         
         # Get participants with certificates
         cursor.execute(
-            """SELECT name, email, certificate_ipfs_hash, certificate_token_id, wallet_address
+            """SELECT name, email, certificate_ipfs_hash, certificate_token_id, wallet_address, poa_token_id
                FROM participants 
-               WHERE event_id = ? AND certificate_minted = TRUE""",
+               WHERE event_id = ? AND certificate_status = 'completed' AND certificate_token_id IS NOT NULL""",
             (event_id,)
         )
         
@@ -1597,7 +1614,7 @@ async def send_emails(event_id: int):
         failed_emails = 0
         
         for participant in participants:
-            name, email, ipfs_hash, token_id, wallet_address = participant
+            name, email, ipfs_hash, token_id, wallet_address, poa_token_id = participant
             
             try:
                 # Create email content
@@ -1611,6 +1628,14 @@ async def send_emails(event_id: int):
                     <h2>Congratulations {name}! 🎉</h2>
                     <p>Your certificate for <strong>{event_name}</strong> has been generated and minted as an NFT.</p>
                     
+                    <h3>🏆 PROOF OF ATTENDANCE (PoA) NFT:</h3>
+                    <ul>
+                        <li><strong>You also received a PoA NFT for attending this event!</strong></li>
+                        <li><strong>PoA Contract Address:</strong> {CONTRACT_ADDRESS}</li>
+                        <li><strong>PoA Token ID:</strong> {poa_token_id}</li>
+                        <li><strong>Note:</strong> Your PoA NFT was minted when you registered/attended the event.</li>
+                    </ul>
+                    
                     <h3>📜 CERTIFICATE DETAILS:</h3>
                     <ul>
                         <li><strong>Event:</strong> {event_name}</li>
@@ -1618,22 +1643,30 @@ async def send_emails(event_id: int):
                         <li><strong>Certificate Type:</strong> NFT (Non-Fungible Token)</li>
                     </ul>
                     
-                    <h3>🔗 NFT DETAILS:</h3>
+                    <h3>🔗 CERTIFICATE NFT DETAILS:</h3>
                     <ul>
                         <li><strong>Contract Address:</strong> {CONTRACT_ADDRESS}</li>
-                        <li><strong>Token ID:</strong> {token_id if token_id else 'Processing...'}</li>
+                        <li><strong>Certificate Token ID:</strong> {token_id if token_id else 'Processing...'}</li>
                         <li><strong>Your Wallet:</strong> {wallet_address}</li>
                     </ul>
                     
                     <h3>📱 HOW TO ADD TO YOUR WALLET:</h3>
                     
-                    <h4>For MetaMask:</h4>
+                    <h4>🟠 Import PoA NFT (MetaMask):</h4>
                     <ol>
                         <li>Open MetaMask wallet</li>
                         <li>Go to NFTs tab</li>
                         <li>Click "Import NFT"</li>
                         <li>Enter Contract Address: <code>{CONTRACT_ADDRESS}</code></li>
-                        <li>Enter Token ID: <code>{token_id if token_id else 'Contact organizer'}</code></li>
+                        <li>Enter PoA Token ID: <code>{poa_token_id}</code></li>
+                        <li>Click "Import" - Your PoA logo should appear!</li>
+                    </ol>
+                    
+                    <h4>🟢 Import Certificate NFT (MetaMask):</h4>
+                    <ol>
+                        <li>In the same NFTs tab, click "Import NFT" again</li>
+                        <li>Enter Contract Address: <code>{CONTRACT_ADDRESS}</code></li>
+                        <li>Enter Certificate Token ID: <code>{token_id if token_id else 'Contact organizer'}</code></li>
                         <li>Click "Import"</li>
                     </ol>
                     
@@ -1649,9 +1682,10 @@ async def send_emails(event_id: int):
                     
                     <h3>🎯 WHAT'S NEXT:</h3>
                     <ul>
-                        <li>Add the NFT to your wallet using the instructions above</li>
-                        <li>Share your achievement on social media</li>
-                        <li>Keep this certificate as proof of your participation</li>
+                        <li><strong>Import your PoA NFT</strong> using the instructions above</li>
+                        <li><strong>Add the Certificate NFT</strong> to your wallet using the instructions above</li>
+                        <li>Share your achievements on social media</li>
+                        <li>Keep these NFTs as proof of your participation and achievement</li>
                     </ul>
                     
                     <p>Thank you for being part of {event_name}! 🚀</p>

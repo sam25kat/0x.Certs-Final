@@ -15,7 +15,9 @@
       "Bash(sqlite3:*)",
       "Bash(start python main.py)",
       "Bash(cmd /c:*)",
-      "Bash(dir C:UsersJARVISDesktop0x.Certsbackendcertificates)"
+      "Bash(dir C:UsersJARVISDesktop0x.Certsbackendcertificates)",
+      "Bash(dir \"C:\\Users\\JARVIS\\Desktop\\0x.Certs\\blockchain\")",
+      "Bash(dir \"C:\\Users\\JARVIS\\Desktop\\0x.Certs\\blockchain\\contracts\")"
     ],
     "deny": [],
     "ask": []

@@ -287,7 +287,8 @@ class BulkCertificateProcessor:
                     "name": participant['name'],
                     "email": participant['email'],
                     "certificate_path": cert_result['file_path'],
-                    "token_id": mint_result['token_id']
+                    "token_id": mint_result['token_id'],
+                    "poa_token_id": participant['poa_token_id']  # Add PoA token ID from participant data
                 })
                 
                 results.append({
