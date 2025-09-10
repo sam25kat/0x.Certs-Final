@@ -31,7 +31,9 @@ interface Participant {
 }
 
 const OrganizerDashboard: React.FC = () => {
+  console.log('🚀 OrganizerDashboard: Component is rendering');
   const { address, isConnected } = useAccount();
+  console.log('💰 Wallet connection status:', { address, isConnected });
   const [events, setEvents] = useState<Event[]>([]);
   const [participants, setParticipants] = useState<{[key: number]: Participant[]}>({});
   const [expandedEvents, setExpandedEvents] = useState<{[key: number]: boolean}>({});
@@ -46,6 +48,7 @@ const OrganizerDashboard: React.FC = () => {
   });
 
   const API_BASE = 'http://localhost:8000';
+  console.log('🔗 API_BASE configured:', API_BASE);
 
   // Bulk mint hook
   const { 
@@ -126,13 +129,20 @@ const OrganizerDashboard: React.FC = () => {
 
   const loadEvents = async () => {
     try {
+      console.log('📅 Loading events from:', `${API_BASE}/events`);
       const response = await fetch(`${API_BASE}/events`);
+      console.log('📅 Events response status:', response.status);
       if (response.ok) {
         const data = await response.json();
+        console.log('📅 Events data received:', data);
         setEvents(data.events);
+      } else {
+        console.error('❌ Failed to load events, status:', response.status);
+        showStatus('error', `Failed to load events (status: ${response.status}). Make sure the backend server is running on port 8000.`);
       }
     } catch (error) {
-      console.error('Error loading events:', error);
+      console.error('❌ Error loading events:', error);
+      showStatus('error', `Error loading events: ${error instanceof Error ? error.message : 'Unknown error'}. Make sure the backend server is running.`);
     }
   };
 
@@ -839,7 +849,41 @@ const OrganizerDashboard: React.FC = () => {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '15px' }}>
                         <div>
                           <h3 style={{ margin: '0 0 5px 0' }}>{event.event_name}</h3>
-                          <p style={{ margin: '0', color: '#6c757d' }}>Code: {event.event_code} | ID: {event.id}</p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '0', color: '#6c757d' }}>
+                            <span>Code: {event.event_code} | ID: {event.id}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(event.event_code).then(() => {
+                                  showStatus('success', `Event code ${event.event_code} copied to clipboard!`);
+                                }).catch(() => {
+                                  // Fallback for older browsers
+                                  const textArea = document.createElement('textarea');
+                                  textArea.value = event.event_code;
+                                  document.body.appendChild(textArea);
+                                  textArea.select();
+                                  document.execCommand('copy');
+                                  document.body.removeChild(textArea);
+                                  showStatus('success', `Event code ${event.event_code} copied to clipboard!`);
+                                });
+                              }}
+                              style={{
+                                background: 'transparent',
+                                border: '1px solid #6c757d',
+                                borderRadius: '4px',
+                                padding: '2px 6px',
+                                fontSize: '0.7rem',
+                                cursor: 'pointer',
+                                color: '#6c757d',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                              title="Copy event code"
+                            >
+                              📋 Copy
+                            </button>
+                          </div>
                           {event.event_date && <p style={{ margin: '5px 0 0 0', color: '#6c757d' }}>Date: {event.event_date}</p>}
                         </div>
                         <span style={{

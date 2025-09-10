@@ -920,25 +920,30 @@ async def register_participant(participant: ParticipantRegister):
         
         # Check if this wallet address is already used for this event
         cursor.execute(
-            "SELECT id, name, email, poa_minted FROM participants WHERE wallet_address = ? AND event_id = ?",
+            "SELECT id, name, email, poa_minted, certificate_minted FROM participants WHERE wallet_address = ? AND event_id = ?",
             (participant.wallet_address, event_id)
         )
         
         existing = cursor.fetchone()
         if existing:
-            participant_id, existing_name, existing_email, poa_minted = existing
+            participant_id, existing_name, existing_email, poa_minted, certificate_minted = existing
             
             # Check if it's the same person (same name and email) trying to register again
             if existing_name.lower() == participant.name.lower() and existing_email.lower() == participant.email.lower():
-                print(f"ℹ️ Same user already registered: {participant.wallet_address}")
-                return {
-                    "message": f"Already registered for '{event_name}'. Use frontend to mint your PoA NFT.",
-                    "participant_id": participant_id,
-                    "event_name": event_name,
-                    "event_id": event_id,
-                    "poa_minted": poa_minted,
-                    "registration_complete": True
-                }
+                print(f"❌ Same user already registered: {participant.wallet_address}")
+                
+                # Provide specific error message based on their completion status
+                if certificate_minted:
+                    error_msg = f"You have already completed the full process for '{event_name}' including receiving your certificate NFT. Each participant can only register once per event."
+                elif poa_minted:
+                    error_msg = f"You have already registered and received your PoA NFT for '{event_name}'. Each participant can only register once per event."
+                else:
+                    error_msg = f"Already registered for '{event_name}' with this wallet address. Each participant can only register once per event."
+                
+                raise HTTPException(
+                    status_code=400,
+                    detail=error_msg
+                )
             else:
                 # Different person trying to use the same wallet address
                 print(f"❌ Wallet address already in use: {participant.wallet_address} by {existing_name} ({existing_email})")

@@ -1,35 +1,14 @@
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ChevronRight } from 'lucide-react';
-import PixelBlast from '@/components/ui/PixelBlast';
 
 export default function LandingPage() {
+  console.log('🏠 LandingPage: Component is rendering');
 
   return (
     <div className="min-h-screen">
       {/* Hero Section */}
       <section className="relative overflow-hidden min-h-screen flex items-center justify-center">
-        <div className="absolute inset-0">
-          <PixelBlast
-            variant="circle"
-            pixelSize={6}
-            color="#B19EEF"
-            patternScale={3}
-            patternDensity={1.2}
-            pixelSizeJitter={0.5}
-            enableRipples
-            rippleSpeed={0.4}
-            rippleThickness={0.12}
-            rippleIntensityScale={1.5}
-            liquid
-            liquidStrength={0.12}
-            liquidRadius={1.2}
-            liquidWobbleSpeed={5}
-            speed={0.6}
-            edgeFade={0.25}
-            transparent
-          />
-        </div>
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background/80 to-background/90"></div>
         <div className="container mx-auto px-4 relative">
           <div className="max-w-4xl mx-auto text-center">
@@ -41,13 +20,13 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link to="/participant">
-                <Button size="lg" variant="web3" className="min-w-[200px]">
+                <Button size="lg" variant="default" className="min-w-[200px]">
                   Join as Participant
                   <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
               <Link to="/organizer">
-                <Button size="lg" variant="neon" className="min-w-[200px]">
+                <Button size="lg" variant="outline" className="min-w-[200px]">
                   Organize Events
                   <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
@@ -56,7 +35,6 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
-
 
       {/* How It Works Section */}
       <section className="py-20 md:py-32 bg-muted/20">
@@ -116,7 +94,7 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link to="/participant">
-                <Button size="lg" variant="web3" className="min-w-[200px]">
+                <Button size="lg" variant="default" className="min-w-[200px]">
                   Start as Participant
                 </Button>
               </Link>
