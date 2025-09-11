@@ -1,12 +1,37 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-sqlalchemy==2.0.23
-pillow==10.1.0
-web3==6.12.0
-requests==2.31.0
-python-multipart==0.0.6
-python-dotenv==1.0.0
-pydantic==2.5.0
-aiofiles==23.2.0
-aiosqlite==0.19.0
-httptools==0.6.1
+# Web Framework
+fastapi>=0.104.1,<1.0.0
+uvicorn[standard]>=0.24.0,<1.0.0
+
+# Database
+sqlalchemy>=2.0.23,<3.0.0
+aiosqlite>=0.19.0,<1.0.0
+
+# Image Processing - Python 3.13 compatible
+pillow>=10.4.0
+
+# Blockchain/Web3
+web3>=6.12.0,<7.0.0
+
+# HTTP Requests
+requests>=2.31.0,<3.0.0
+
+# File Upload and Multipart
+python-multipart>=0.0.6
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# Data Validation
+pydantic>=2.5.0,<3.0.0
+
+# Async File Operations
+aiofiles>=23.2.0
+
+# HTTP Tools for Uvicorn
+httptools>=0.6.1
+
+# Email (if needed)
+# smtplib is built-in, no need to install
+
+# Additional dependencies that might be needed
+typing-extensions>=4.0.0
