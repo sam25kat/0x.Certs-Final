@@ -5,19 +5,31 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
-import { CheckCircle, Clock, Shield, Award, ExternalLink, Loader2, Trophy, Medal, Calendar, Hash, Copy } from 'lucide-react';
+import { CheckCircle, Clock, Shield, Award, ExternalLink, Loader2, Trophy, Medal, Calendar, Hash, Copy, Info, ChevronDown, ChevronUp, X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import PixelBlast from '@/components/ui/PixelBlast';
 
 export default function ParticipantDashboard() {
   const { address, isConnected } = useAccount();
-  const { toast } = useToast();
   const [participantStatus, setParticipantStatus] = useState<any>(null);
   const [showStatus, setShowStatus] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [telegramVerified, setTelegramVerified] = useState(false);
   const [telegramVerifying, setTelegramVerifying] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  const [selectedInfo, setSelectedInfo] = useState<any>(null);
+  const [showNetworkConfig, setShowNetworkConfig] = useState(false);
+  const [notification, setNotification] = useState<{
+    show: boolean;
+    type: 'success' | 'error' | 'info';
+    title: string;
+    message: string;
+  }>({
+    show: false,
+    type: 'info',
+    title: '',
+    message: ''
+  });
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -25,6 +37,21 @@ export default function ParticipantDashboard() {
     telegram_username: '',
     event_code: '',
   });
+
+  // Utility function to show notifications
+  const showNotification = (type: 'success' | 'error' | 'info', title: string, message: string) => {
+    setNotification({
+      show: true,
+      type,
+      title,
+      message
+    });
+    
+    // Auto-hide after 4 seconds
+    setTimeout(() => {
+      setNotification(prev => ({ ...prev, show: false }));
+    }, 4000);
+  };
 
   // Load user NFT status when wallet connects
   useEffect(() => {
@@ -68,11 +95,7 @@ export default function ParticipantDashboard() {
     const username = formData.telegram_username.trim();
     
     if (!username) {
-      toast({
-        title: "Missing username",
-        description: "Please enter your Telegram username to verify membership",
-        variant: "destructive",
-      });
+      showNotification('error', 'Missing username', 'Please enter your Telegram username to verify membership');
       return;
     }
 
@@ -81,11 +104,7 @@ export default function ParticipantDashboard() {
     
     // Basic username format validation
     if (!/^[a-zA-Z0-9_]{5,32}$/.test(cleanUsername)) {
-      toast({
-        title: "Invalid username format",
-        description: "Username should be 5-32 characters and contain only letters, numbers, and underscores.",
-        variant: "destructive",
-      });
+      showNotification('error', 'Invalid username format', 'Username should be 5-32 characters and contain only letters, numbers, and underscores.');
       return;
     }
 
@@ -95,32 +114,17 @@ export default function ParticipantDashboard() {
       await api.verifyTelegramMembership(cleanUsername);
       setTelegramVerified(true);
       setFormData(prev => ({ ...prev, telegram_username: cleanUsername }));
-      toast({
-        title: "Verification successful!",
-        description: `Welcome to the community! @${cleanUsername} has been verified successfully.`,
-      });
+      showNotification('success', 'Verification successful', `Welcome to the community! @${cleanUsername} has been verified successfully.`);
     } catch (error) {
       setTelegramVerified(false);
       const errorMsg = error instanceof Error ? error.message : 'Verification failed';
       
       if (errorMsg.includes('not a member')) {
-        toast({
-          title: "Not a member",
-          description: `@${cleanUsername} is not a member of our Telegram community yet. Please join our community first.`,
-          variant: "destructive",
-        });
+        showNotification('error', 'Not a member', `@${cleanUsername} is not a member of our Telegram community yet. Please join our community first.`);
       } else if (errorMsg.includes('user not found')) {
-        toast({
-          title: "User not found",
-          description: `Telegram user @${cleanUsername} not found. Please check your username spelling.`,
-          variant: "destructive",
-        });
+        showNotification('error', 'User not found', `Telegram user @${cleanUsername} not found. Please check your username spelling.`);
       } else {
-        toast({
-          title: "Verification failed",
-          description: errorMsg,
-          variant: "destructive",
-        });
+        showNotification('error', 'Verification failed', errorMsg);
       }
     } finally {
       setTelegramVerifying(false);
@@ -131,29 +135,17 @@ export default function ParticipantDashboard() {
     e.preventDefault();
     
     if (!isConnected || !address) {
-      toast({
-        title: "Wallet not connected",
-        description: "Please connect your wallet to register",
-        variant: "destructive",
-      });
+      showNotification('error', 'Wallet not connected', 'Please connect your wallet to register');
       return;
     }
 
     if (!formData.telegram_username) {
-      toast({
-        title: "Telegram username required",
-        description: "Please enter your Telegram username to continue",
-        variant: "destructive",
-      });
+      showNotification('error', 'Telegram username required', 'Please enter your Telegram username to continue');
       return;
     }
 
     if (!telegramVerified) {
-      toast({
-        title: "Telegram not verified",
-        description: "Please verify your Telegram community membership first",
-        variant: "destructive",
-      });
+      showNotification('error', 'Telegram not verified', 'Please verify your Telegram community membership first');
       return;
     }
 
@@ -168,10 +160,7 @@ export default function ParticipantDashboard() {
         telegram_username: formData.telegram_username,
       });
       
-      toast({
-        title: "Registration successful!",
-        description: `Successfully registered for "${result.event_name}"!`,
-      });
+      showNotification('success', 'Registration successful', `Successfully registered for "${result.event_name}"`);
       
       // Reset form
       setFormData({
@@ -193,34 +182,18 @@ export default function ParticipantDashboard() {
         
         // Handle specific error cases
         if (errorMessage.includes('wallet address is already registered') || errorMessage.includes('already registered')) {
-          toast({
-            title: "Wallet Already Registered",
-            description: `${errorMessage}\n\nPlease use a different wallet address or contact support if this is incorrect.`,
-            variant: "destructive",
-          });
+          showNotification('error', 'Wallet Already Registered', `${errorMessage}. Please use a different wallet address or contact support if this is incorrect.`);
           return;
         } else if (errorMessage.includes('already completed the full process')) {
-          toast({
-            title: "Already Completed",
-            description: `${errorMessage}`,
-            variant: "destructive",
-          });
+          showNotification('error', 'Already Completed', errorMessage);
           return;
         } else if (errorMessage.includes('Event not found') || errorMessage.includes('not found')) {
-          toast({
-            title: "Event not found",
-            description: `Event not found. Please check the event code and try again.`,
-            variant: "destructive",
-          });
+          showNotification('error', 'Event not found', 'Event not found. Please check the event code and try again.');
           return;
         }
       }
       
-      toast({
-        title: "Registration failed",
-        description: errorMessage,
-        variant: "destructive",
-      });
+      showNotification('error', 'Registration failed', errorMessage);
     } finally {
       setIsRegistering(false);
     }
@@ -239,6 +212,332 @@ export default function ParticipantDashboard() {
       </Badge>
     </div>
   );
+
+  const handleInfoClick = (type: 'poa' | 'certificate', nftStatus: any, eventId: string) => {
+    setSelectedInfo({
+      type,
+      eventId,
+      eventName: nftStatus.event_name || `Event #${eventId}`,
+      tokenId: type === 'poa' ? nftStatus.poa_token_id : nftStatus.certificate_token_id,
+      status: type === 'poa' ? nftStatus.poa_status : nftStatus.certificate_status,
+      transferredAt: type === 'poa' ? nftStatus.poa_transferred_at : nftStatus.certificate_transferred_at,
+      contractAddress: "0xa51A70d9C18FFED4fC4214dedEC05E8C988900d0" // Actual contract address for both PoA and Certificate
+    });
+    setShowInfoModal(true);
+  };
+
+  const NetworkConfigDropdown = () => (
+    <div className="mt-4 border border-green-600/30 rounded-lg bg-gray-800/40 overflow-hidden">
+      <button
+        onClick={() => setShowNetworkConfig(!showNetworkConfig)}
+        className="w-full flex items-center justify-between p-3 text-left text-white hover:bg-green-600/10 transition-colors"
+      >
+        <span className="text-sm font-medium">Base Sepolia Network Configuration</span>
+        {showNetworkConfig ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </button>
+      
+      {showNetworkConfig && (
+        <div className="p-4 border-t border-green-600/20 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div>
+              <div className="text-green-400 font-medium mb-1">Network Name:</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">Base Sepolia</div>
+            </div>
+            <div>
+              <div className="text-green-400 font-medium mb-1">Chain ID:</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">84532</div>
+            </div>
+            <div>
+              <div className="text-green-400 font-medium mb-1">RPC URL:</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded break-all">https://sepolia.base.org</div>
+            </div>
+            <div>
+              <div className="text-green-400 font-medium mb-1">Block Explorer:</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded break-all">https://sepolia.basescan.org</div>
+            </div>
+            <div>
+              <div className="text-green-400 font-medium mb-1">Currency Symbol:</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">ETH</div>
+            </div>
+            <div>
+              <div className="text-green-400 font-medium mb-1">Currency Name:</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">Ethereum</div>
+            </div>
+          </div>
+          <div className="mt-3 p-3 bg-green-600/10 rounded border border-green-600/20">
+            <div className="text-green-400 text-xs font-medium mb-2">How to Add to MetaMask:</div>
+            <div className="text-gray-300 text-xs space-y-1">
+              <div>1. Open MetaMask → Settings → Networks → Add Network</div>
+              <div>2. Fill in the details above</div>
+              <div>3. Save and switch to Base Sepolia network</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const NotificationModal = () => {
+    if (!notification.show) return null;
+
+    const getIcon = () => {
+      switch (notification.type) {
+        case 'success':
+          return <CheckCircle2 className="h-6 w-6 text-green-400" />;
+        case 'error':
+          return <AlertCircle className="h-6 w-6 text-red-400" />;
+        case 'info':
+          return <Info className="h-6 w-6 text-blue-400" />;
+        default:
+          return <Info className="h-6 w-6 text-blue-400" />;
+      }
+    };
+
+    const getBorderColor = () => {
+      switch (notification.type) {
+        case 'success':
+          return 'border-green-500/40';
+        case 'error':
+          return 'border-red-500/40';
+        case 'info':
+          return 'border-blue-500/40';
+        default:
+          return 'border-blue-500/40';
+      }
+    };
+
+    const getBackgroundColor = () => {
+      switch (notification.type) {
+        case 'success':
+          return 'bg-green-900/20';
+        case 'error':
+          return 'bg-red-900/20';
+        case 'info':
+          return 'bg-blue-900/20';
+        default:
+          return 'bg-blue-900/20';
+      }
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div 
+          className={`bg-gray-900 border ${getBorderColor()} rounded-lg max-w-md w-full transform transition-all duration-300 scale-100 opacity-100 animate-in fade-in slide-in-from-bottom-4`}
+          style={{
+            animation: 'slideInFromBottom 0.3s ease-out'
+          }}
+        >
+          <div className={`p-6 rounded-lg ${getBackgroundColor()}`}>
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0">
+                {getIcon()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-semibold text-white mb-2">
+                  {notification.title}
+                </h3>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  {notification.message}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setNotification(prev => ({ ...prev, show: false }))}
+                className="text-gray-400 hover:text-white flex-shrink-0 h-8 w-8 p-0"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const InfoModal = () => {
+    if (!showInfoModal || !selectedInfo) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="bg-gray-900 border border-green-600/40 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold text-white flex items-center gap-2">
+                {selectedInfo.type === 'poa' ? <Medal className="h-5 w-5 text-green-400" /> : <Trophy className="h-5 w-5 text-green-400" />}
+                {selectedInfo.type === 'poa' ? 'Proof of Attendance' : 'Certificate NFT'} Details
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowInfoModal(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </Button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-green-400 text-sm font-medium mb-1">Event:</div>
+                  <div className="text-white">{selectedInfo.eventName}</div>
+                </div>
+                <div>
+                  <div className="text-green-400 text-sm font-medium mb-1">Token ID:</div>
+                  <div className="text-white font-mono">#{selectedInfo.tokenId}</div>
+                </div>
+                <div>
+                  <div className="text-green-400 text-sm font-medium mb-1">Status:</div>
+                  <div className="text-white">{selectedInfo.status}</div>
+                </div>
+                {selectedInfo.transferredAt && (
+                  <div>
+                    <div className="text-green-400 text-sm font-medium mb-1">Received:</div>
+                    <div className="text-white text-sm">{new Date(selectedInfo.transferredAt).toLocaleString()}</div>
+                  </div>
+                )}
+              </div>
+
+              <div className="border border-green-600/30 rounded-lg bg-gray-800/40 p-4">
+                <div className="text-green-400 text-sm font-medium mb-2">Contract Address:</div>
+                <div className="flex items-center gap-2">
+                  <div className="text-white font-mono text-sm bg-gray-900/50 p-2 rounded flex-1 break-all">
+                    {selectedInfo.contractAddress}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedInfo.contractAddress);
+                      showNotification('success', 'Copied', 'Contract address copied to clipboard');
+                    }}
+                    className="text-green-400 hover:text-green-300 hover:bg-green-600/10 shrink-0"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="text-gray-400 text-xs mt-2">
+                  Use this address when importing your NFT to MetaMask or other wallets
+                </div>
+              </div>
+
+              <NetworkConfigDropdown />
+
+              <div className="border border-green-600/30 rounded-lg bg-gray-800/40 p-4">
+                <div className="text-gray-300 text-sm space-y-3 max-h-60 overflow-y-auto">
+                      
+                  {selectedInfo.type === 'poa' && (
+                    <div className="bg-orange-900/15 p-4 rounded-lg border border-orange-500/20">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Medal className="h-5 w-5 text-orange-400" />
+                        <h4 className="text-orange-200 font-semibold">Proof of Attendance (PoA) NFT</h4>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-400">Token ID:</span>
+                          <span className="text-white font-mono bg-gray-800/50 px-2 py-1 rounded">#{selectedInfo.tokenId}</span>
+                        </div>
+                        
+                        {selectedInfo.status === 'registered' && (
+                          <div className="bg-yellow-900/20 p-3 rounded border border-yellow-600/30">
+                            <p className="text-yellow-200 text-sm">
+                              <strong>Status:</strong> Waiting for mint. If you've been waiting too long, please contact your event organizer for assistance.
+                            </p>
+                          </div>
+                        )}
+                        
+                        {selectedInfo.status === 'transferred' && (
+                          <div className="mt-3">
+                            <h5 className="text-orange-300 font-medium mb-2">Import to Wallet:</h5>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div className="bg-gray-800/30 p-2 rounded">1. Open MetaMask → NFTs</div>
+                              <div className="bg-gray-800/30 p-2 rounded">2. Click "Import NFT"</div>
+                              <div className="bg-gray-800/30 p-2 rounded">3. Enter Contract & Token ID</div>
+                              <div className="bg-gray-800/30 p-2 rounded">4. Click "Import"</div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedInfo.type === 'certificate' && (
+                    <div className="bg-green-900/15 p-4 rounded-lg border border-green-500/20">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Trophy className="h-5 w-5 text-green-400" />
+                        <h4 className="text-green-200 font-semibold">Proof of Completion (PoC) Certificate</h4>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-400">Token ID:</span>
+                          <span className="text-white font-mono bg-gray-800/50 px-2 py-1 rounded">#{selectedInfo.tokenId}</span>
+                        </div>
+                        
+                        {selectedInfo.status === 'not_eligible' && (
+                          <div className="bg-yellow-900/20 p-3 rounded border border-yellow-600/30">
+                            <p className="text-yellow-200 text-sm">
+                              <strong>Status:</strong> Not eligible yet. Complete your PoA requirements first. If you believe this is incorrect, please contact your event organizer.
+                            </p>
+                          </div>
+                        )}
+                        
+                        {selectedInfo.status !== 'not_eligible' && (
+                          <>
+                            <div className="grid grid-cols-2 gap-2 text-xs text-gray-300">
+                              <div><span className="text-green-400">Blockchain:</span> Base Sepolia</div>
+                              <div><span className="text-green-400">Type:</span> ERC-721 NFT</div>
+                            </div>
+                            
+                            {(selectedInfo.status === 'transferred' || selectedInfo.status === 'completed') && (
+                              <div className="mt-3">
+                                <h5 className="text-green-300 font-medium mb-2">Import to Wallet:</h5>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div className="bg-gray-800/30 p-2 rounded">1. Open MetaMask → NFTs</div>
+                                  <div className="bg-gray-800/30 p-2 rounded">2. Click "Import NFT"</div>
+                                  <div className="bg-gray-800/30 p-2 rounded">3. Enter Contract & Token ID</div>
+                                  <div className="bg-gray-800/30 p-2 rounded">4. Click "Import"</div>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-blue-900/15 p-4 rounded-lg border border-blue-500/20">
+                    <div className="flex items-center gap-2 mb-3">
+                      <CheckCircle className="h-5 w-5 text-blue-400" />
+                      <h4 className="text-blue-200 font-semibold">Next Steps</h4>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                      <div className="bg-gray-800/30 p-3 rounded flex items-center gap-2">
+                        <span className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">1</span>
+                        <span className="text-gray-200">Configure Base Sepolia network</span>
+                      </div>
+                      <div className="bg-gray-800/30 p-3 rounded flex items-center gap-2">
+                        <span className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">2</span>
+                        <span className="text-gray-200">Import NFT to wallet</span>
+                      </div>
+                      <div className="bg-gray-800/30 p-3 rounded flex items-center gap-2">
+                        <span className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">3</span>
+                        <span className="text-gray-200">Share on social media</span>
+                      </div>
+                      <div className="bg-gray-800/30 p-3 rounded flex items-center gap-2">
+                        <span className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">4</span>
+                        <span className="text-gray-200">Keep as proof forever</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   if (!isConnected) {
     return (
@@ -439,6 +738,14 @@ export default function ParticipantDashboard() {
                           <PoAIcon className="h-3 w-3 mr-1" />
                           {poaInfo.text}
                         </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleInfoClick('poa', nftStatus, eventId)}
+                          className="h-6 w-6 p-0 text-green-400 hover:text-green-300 hover:bg-green-600/10"
+                        >
+                          <Info className="h-3 w-3" />
+                        </Button>
                       </div>
                       <p className="text-sm text-gray-400 mb-2">{poaInfo.subtext}</p>
                       {nftStatus.poa_transferred_at && (
@@ -466,6 +773,14 @@ export default function ParticipantDashboard() {
                           <CertIcon className="h-3 w-3 mr-1" />
                           {certInfo.text}
                         </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleInfoClick('certificate', nftStatus, eventId)}
+                          className="h-6 w-6 p-0 text-green-400 hover:text-green-300 hover:bg-green-600/10"
+                        >
+                          <Info className="h-3 w-3" />
+                        </Button>
                       </div>
                       <p className="text-sm text-gray-400 mb-2">{certInfo.subtext}</p>
                       {nftStatus.certificate_transferred_at && (
@@ -757,6 +1072,20 @@ export default function ParticipantDashboard() {
         </div>
         </div>
       </div>
+      <NotificationModal />
+      <InfoModal />
+      <style jsx>{`
+        @keyframes slideInFromBottom {
+          0% {
+            transform: translateY(100px);
+            opacity: 0;
+          }
+          100% {
+            transform: translateY(0);
+            opacity: 1;
+          }
+        }
+      `}</style>
     </div>
   );
 }
