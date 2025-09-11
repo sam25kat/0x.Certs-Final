@@ -7,7 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api';
-import { CheckCircle, Clock, Shield, Award, ExternalLink, Loader2 } from 'lucide-react';
+import { CheckCircle, Clock, Shield, Award, ExternalLink, Loader2, Trophy, Medal, Calendar, Hash, Copy } from 'lucide-react';
+import PixelBlast from '@/components/ui/PixelBlast';
 
 export default function ParticipantDashboard() {
   const { address, isConnected } = useAccount();
@@ -241,9 +242,34 @@ export default function ParticipantDashboard() {
 
   if (!isConnected) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div className="relative min-h-screen">
+        {/* PixelBlast Background */}
+        <div className="fixed inset-0 z-0">
+          <PixelBlast
+            variant="circle"
+            pixelSize={6}
+            color="#22c55e"
+            patternScale={3}
+            patternDensity={1.2}
+            pixelSizeJitter={0.5}
+            enableRipples
+            rippleSpeed={0.4}
+            rippleThickness={0.12}
+            rippleIntensityScale={1.5}
+            liquid
+            liquidStrength={0.12}
+            liquidRadius={1.2}
+            liquidWobbleSpeed={5}
+            speed={0.6}
+            edgeFade={0.25}
+            transparent
+          />
+        </div>
+        
+        {/* Content */}
+        <div className="relative z-10 container mx-auto px-4 py-8">
         <div className="max-w-md mx-auto">
-          <Card>
+          <Card className="backdrop-blur-sm bg-background/80 border-2">
             <CardHeader className="text-center">
               <Shield className="h-16 w-16 text-primary mx-auto mb-4" />
               <CardTitle className="gradient-text">Connect Your Wallet</CardTitle>
@@ -258,6 +284,7 @@ export default function ParticipantDashboard() {
             </CardContent>
           </Card>
         </div>
+        </div>
       </div>
     );
   }
@@ -266,7 +293,7 @@ export default function ParticipantDashboard() {
   const renderParticipantStatus = () => {
     if (!participantStatus || !participantStatus.events || Object.keys(participantStatus.events).length === 0) {
       return (
-        <Card>
+        <Card className="backdrop-blur-sm bg-background/80">
           <CardContent className="p-8 text-center">
             <Award className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground">No NFTs found for your wallet address.</p>
@@ -276,68 +303,179 @@ export default function ParticipantDashboard() {
     }
 
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         {Object.entries(participantStatus.events).map(([eventId, nftStatus]: [string, any]) => {
-          const getPoAStatusDisplay = () => {
+          const getPoAStatusInfo = () => {
             switch(nftStatus.poa_status) {
               case 'registered':
-                return { text: 'Registered - Waiting for mint', color: 'bg-yellow-100 border-yellow-200', textColor: 'text-yellow-800' };
+                return { 
+                  text: 'Registered', 
+                  subtext: 'Waiting for mint', 
+                  icon: Clock,
+                  badgeColor: 'bg-red-600 text-white'
+                };
               case 'minted':
-                return { text: 'Minted - Waiting for transfer', color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
+                return { 
+                  text: 'Minted', 
+                  subtext: 'Waiting for transfer', 
+                  icon: Clock,
+                  badgeColor: 'bg-red-600 text-white'
+                };
               case 'transferred':
-                return { text: `PoA NFT Received #${nftStatus.poa_token_id}`, color: 'bg-green-100 border-green-200', textColor: 'text-green-800' };
+                return { 
+                  text: 'NFT Received', 
+                  subtext: `Token ID: #${nftStatus.poa_token_id}`, 
+                  icon: CheckCircle,
+                  badgeColor: 'bg-green-600 text-white'
+                };
               default:
-                return { text: 'Unknown status', color: 'bg-red-100 border-red-200', textColor: 'text-red-800' };
+                return { 
+                  text: 'Unknown Status', 
+                  subtext: 'Please check back later', 
+                  icon: Clock,
+                  badgeColor: 'bg-red-600 text-white'
+                };
             }
           };
 
-          const getCertStatusDisplay = () => {
+          const getCertStatusInfo = () => {
             switch(nftStatus.certificate_status) {
               case 'not_eligible':
-                return { text: 'Not eligible yet', color: 'bg-gray-100 border-gray-200', textColor: 'text-gray-800' };
+                return { 
+                  text: 'Not Eligible', 
+                  subtext: 'Complete PoA requirements first', 
+                  icon: Clock,
+                  badgeColor: 'bg-yellow-600 text-white'
+                };
               case 'eligible':
-                return { text: 'Eligible - Waiting for generation', color: 'bg-yellow-100 border-yellow-200', textColor: 'text-yellow-800' };
+                return { 
+                  text: 'Eligible', 
+                  subtext: 'Waiting for generation', 
+                  icon: Clock,
+                  badgeColor: 'bg-red-600 text-white'
+                };
               case 'generated':
-                return { text: 'Generated - Waiting for mint', color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
+                return { 
+                  text: 'Generated', 
+                  subtext: 'Waiting for mint', 
+                  icon: Clock,
+                  badgeColor: 'bg-red-600 text-white'
+                };
               case 'completed':
-                return { text: `Certificate Completed #${nftStatus.certificate_token_id || 'N/A'}`, color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
+                return { 
+                  text: 'Completed', 
+                  subtext: `Token ID: #${nftStatus.certificate_token_id || 'N/A'}`, 
+                  icon: CheckCircle,
+                  badgeColor: 'bg-green-600 text-white'
+                };
               case 'minted':
-                return { text: 'Minted - Waiting for transfer', color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
+                return { 
+                  text: 'Minted', 
+                  subtext: 'Waiting for transfer', 
+                  icon: Clock,
+                  badgeColor: 'bg-red-600 text-white'
+                };
               case 'transferred':
-                return { text: `Certificate NFT Received #${nftStatus.certificate_token_id}`, color: 'bg-green-100 border-green-200', textColor: 'text-green-800' };
+                return { 
+                  text: 'Certificate Received', 
+                  subtext: `Token ID: #${nftStatus.certificate_token_id}`, 
+                  icon: CheckCircle,
+                  badgeColor: 'bg-green-600 text-white'
+                };
               default:
-                return { text: `Unknown status: ${nftStatus.certificate_status}`, color: 'bg-red-100 border-red-200', textColor: 'text-red-800' };
+                return { 
+                  text: 'Unknown Status', 
+                  subtext: nftStatus.certificate_status || 'Please check back later', 
+                  icon: Clock,
+                  badgeColor: 'bg-red-600 text-white'
+                };
             }
           };
 
-          const poaStatus = getPoAStatusDisplay();
-          const certStatus = getCertStatusDisplay();
+          const poaInfo = getPoAStatusInfo();
+          const certInfo = getCertStatusInfo();
+          const PoAIcon = poaInfo.icon;
+          const CertIcon = certInfo.icon;
 
           return (
-            <Card key={eventId} className="border-2">
-              <CardHeader>
-                <CardTitle className="text-lg">Event ID: {eventId}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className={`p-4 rounded-lg border-2 ${poaStatus.color}`}>
-                  <div className={`font-medium ${poaStatus.textColor}`}>
-                    PoA Status: {poaStatus.text}
-                  </div>
-                  {nftStatus.poa_transferred_at && (
-                    <div className="text-sm text-muted-foreground mt-2">
-                      Transferred: {new Date(nftStatus.poa_transferred_at).toLocaleString()}
+            <Card key={eventId} className="border border-green-600/40 bg-gray-900/70 shadow-md hover:shadow-lg transition-all duration-300">
+              <CardHeader className="pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-600/10 rounded-lg">
+                      <Hash className="h-5 w-5 text-green-400" />
                     </div>
-                  )}
+                    <div>
+                      <CardTitle className="text-lg font-semibold text-white">Event #{eventId}</CardTitle>
+                      {nftStatus.event_name && (
+                        <p className="text-sm text-gray-400">{nftStatus.event_name}</p>
+                      )}
+                    </div>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => navigator.clipboard.writeText(eventId)}
+                    className="h-8 w-8 p-0 text-gray-300 hover:text-white hover:bg-green-600/10"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
                 </div>
-                <div className={`p-4 rounded-lg border-2 ${certStatus.color}`}>
-                  <div className={`font-medium ${certStatus.textColor}`}>
-                    Certificate Status: {certStatus.text}
-                  </div>
-                  {nftStatus.certificate_transferred_at && (
-                    <div className="text-sm text-muted-foreground mt-2">
-                      Transferred: {new Date(nftStatus.certificate_transferred_at).toLocaleString()}
+              </CardHeader>
+              
+              <CardContent className="space-y-4">
+                {/* PoA Status */}
+                <div className="relative overflow-hidden rounded-lg border border-green-600/30 bg-gray-800/40 p-4 transition-all duration-200">
+                  <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0">
+                      <div className="p-2 bg-green-600/10 rounded-lg">
+                        <Medal className="h-6 w-6 text-green-400" />
+                      </div>
                     </div>
-                  )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="font-semibold text-white">Proof of Attendance</h3>
+                        <Badge className={`${poaInfo.badgeColor} border-0`}>
+                          <PoAIcon className="h-3 w-3 mr-1" />
+                          {poaInfo.text}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-gray-400 mb-2">{poaInfo.subtext}</p>
+                      {nftStatus.poa_transferred_at && (
+                        <div className="flex items-center gap-1 text-xs text-gray-500">
+                          <Calendar className="h-3 w-3" />
+                          Received: {new Date(nftStatus.poa_transferred_at).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Certificate Status */}
+                <div className="relative overflow-hidden rounded-lg border border-green-600/30 bg-gray-800/40 p-4 transition-all duration-200">
+                  <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0">
+                      <div className="p-2 bg-green-600/10 rounded-lg">
+                        <Trophy className="h-6 w-6 text-green-400" />
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="font-semibold text-white">Certificate NFT</h3>
+                        <Badge className={`${certInfo.badgeColor} border-0`}>
+                          <CertIcon className="h-3 w-3 mr-1" />
+                          {certInfo.text}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-gray-400 mb-2">{certInfo.subtext}</p>
+                      {nftStatus.certificate_transferred_at && (
+                        <div className="flex items-center gap-1 text-xs text-gray-500">
+                          <Calendar className="h-3 w-3" />
+                          Received: {new Date(nftStatus.certificate_transferred_at).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -348,23 +486,45 @@ export default function ParticipantDashboard() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="relative min-h-screen">
+      {/* PixelBlast Background */}
+      <div className="fixed inset-0 z-0">
+        <PixelBlast
+          variant="circle"
+          pixelSize={6}
+          color="#22c55e"
+          patternScale={3}
+          patternDensity={1.2}
+          pixelSizeJitter={0.5}
+          enableRipples
+          rippleSpeed={0.4}
+          rippleThickness={0.12}
+          rippleIntensityScale={1.5}
+          liquid
+          liquidStrength={0.12}
+          liquidRadius={1.2}
+          liquidWobbleSpeed={5}
+          speed={0.6}
+          edgeFade={0.25}
+          transparent
+        />
+      </div>
+      
+      {/* Main Content */}
+      <div className="relative z-10 container mx-auto px-4 py-8">
+        <div className="max-w-6xl mx-auto space-y-6">
         <div className="text-center">
           <h1 className="text-4xl font-bold gradient-text mb-2">Participant Dashboard</h1>
           <p className="text-muted-foreground">Register for events and track your NFT progress</p>
-          <div className="mt-4 text-sm text-muted-foreground">
-            Connected wallet: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Not connected'}
-          </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-8">
           {/* Registration Form - Always Visible */}
-          <Card>
+          <Card className="backdrop-blur-sm bg-background/80 border-2 mb-8">
             <CardHeader>
               <CardTitle className="gradient-text">Event Registration</CardTitle>
               <CardDescription>
-                Enter your details and event code to register
+                Enter your details and event code to register. Claim your certificate and attendance on-chain so you never have to scramble for proof of attendance again - no more begging friends for screenshots or hunting down event organizers for verification!
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -423,7 +583,7 @@ export default function ParticipantDashboard() {
                 </div>
 
                 {/* Telegram Verification Section */}
-                <Card className={`${telegramVerified ? 'border-green-200 bg-green-50' : ''}`}>
+                <Card className={`backdrop-blur-sm ${telegramVerified ? 'border-green-200 bg-green-50/80' : 'bg-background/60'}`}>
                   <CardHeader className="pb-4">
                     <div className="flex items-center gap-2">
                       <CardTitle className="text-base flex items-center gap-2">
@@ -438,7 +598,7 @@ export default function ParticipantDashboard() {
                     <CardDescription>
                       {telegramVerified 
                         ? "Great! You're verified as a community member."
-                        : "Join our community and verify your membership (REQUIRED)"
+                        : "Join our exclusive community for insider updates, networking opportunities, and early access to events. Plus, we verify you're actually part of the crew - no fake registrations allowed!"
                       }
                     </CardDescription>
                   </CardHeader>
@@ -497,11 +657,11 @@ export default function ParticipantDashboard() {
 
                     {!telegramVerified && (
                       <div className="p-4 bg-muted rounded-lg space-y-3">
-                        <div className="font-medium text-sm">New Verification Process:</div>
+                        <div className="font-medium text-sm">Quick Verification (No Bots Allowed!):</div>
                         <div className="space-y-2 text-sm text-muted-foreground">
-                          <div><strong>Step 1:</strong> Join our Telegram community</div>
-                          <div><strong>Step 2:</strong> Message <code className="bg-background px-1.5 py-0.5 rounded text-xs">/0xday</code> in the community group</div>
-                          <div><strong>Step 3:</strong> Enter your username above and verify</div>
+                          <div><strong>Step 1:</strong> Join our community - where the real Web3 builders hang out</div>
+                          <div><strong>Step 2:</strong> Drop a <code className="bg-background px-1.5 py-0.5 rounded text-xs">/0xday</code> message to prove you're legit</div>
+                          <div><strong>Step 3:</strong> Come back here and verify - we'll confirm you're not a bot!</div>
                         </div>
                         <div className="flex gap-2 flex-wrap">
                           <Button
@@ -520,12 +680,9 @@ export default function ParticipantDashboard() {
                               <ExternalLink className="h-3 w-3" />
                             </a>
                           </Button>
-                          <Badge variant="secondary" className="flex items-center gap-1">
+                          <Badge variant="default" className="flex items-center gap-1 bg-green-600 text-white font-semibold">
                             Then type: /0xday
                           </Badge>
-                        </div>
-                        <div className="text-xs text-muted-foreground italic">
-                          <strong>Tip:</strong> You can message /0xday directly in the community group or privately to our bot @Certs0xDay_bot
                         </div>
                       </div>
                     )}
@@ -565,14 +722,14 @@ export default function ParticipantDashboard() {
           </Card>
 
           {/* Status Section */}
-          <Card>
+          <Card className="backdrop-blur-sm bg-background/80 border-2">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Award className="h-5 w-5 text-primary" />
-                My NFT Status
+                MY CERTS & NFT
               </CardTitle>
               <CardDescription>
-                Your NFT progress across all events
+                Track your proof-of-attendance tokens and achievement certificates from all events you've participated in
               </CardDescription>
               <div className="flex gap-2 pt-2">
                 <Button
@@ -597,6 +754,7 @@ export default function ParticipantDashboard() {
               </CardContent>
             )}
           </Card>
+        </div>
         </div>
       </div>
     </div>
