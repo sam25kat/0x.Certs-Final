@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { api, type Event, type Participant } from '@/lib/api';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '@/config/wagmi';
@@ -71,6 +72,11 @@ export default function OrganizerDashboard() {
   });
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  
+  // Participant selection state for batch operations
+  const [selectedParticipants, setSelectedParticipants] = useState<Set<number>>(new Set());
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number>(0);
+  const [participants, setParticipants] = useState<{[key: number]: Participant[]}>({});
 
   // Check for existing session on component mount
   useEffect(() => {
@@ -92,6 +98,12 @@ export default function OrganizerDashboard() {
       loadOrganizerEmails();
     }
   }, [isAuthenticated, session]);
+
+  // Clear selection when switching between events or participants change
+  useEffect(() => {
+    clearSelection();
+    setLastSelectedIndex(0);
+  }, [participants]);
 
   const handleSendOTP = async () => {
     if (!loginEmail.trim()) {
@@ -289,7 +301,6 @@ export default function OrganizerDashboard() {
     enabled: isAuthenticated,
   });
 
-  const [participants, setParticipants] = useState<{[key: number]: Participant[]}>({});
   const [expandedEvents, setExpandedEvents] = useState<{[key: number]: boolean}>({});
   
   // Template management state
@@ -499,7 +510,60 @@ export default function OrganizerDashboard() {
     setExpandedEvents(prev => ({...prev, [eventId]: !isExpanded}));
   };
 
-  // Handle bulk mint PoA
+  // Participant selection helper functions
+  const handleParticipantToggle = (participantId: number) => {
+    setSelectedParticipants(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(participantId)) {
+        newSet.delete(participantId);
+      } else {
+        if (newSet.size >= 25) {
+          toast({
+            title: "Selection Limit Reached",
+            description: "You can select maximum 25 participants at a time to avoid RPC errors.",
+            variant: "destructive"
+          });
+          return prev;
+        }
+        newSet.add(participantId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectNext25 = (eventId: number) => {
+    const eventParticipants = participants[eventId] || [];
+    const remaining = eventParticipants.slice(lastSelectedIndex);
+    const next25 = remaining.slice(0, 25);
+    
+    setSelectedParticipants(new Set(next25.map(p => p.id)));
+    setLastSelectedIndex(prev => prev + next25.length);
+    
+    if (next25.length < 25) {
+      // Reset for next round
+      setLastSelectedIndex(0);
+      toast({
+        title: "Selection Complete",
+        description: `Selected ${next25.length} participants. Reset to beginning for next batch.`,
+      });
+    } else {
+      toast({
+        title: "Next 25 Selected",
+        description: `Selected ${next25.length} participants for batch processing.`,
+      });
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedParticipants(new Set());
+  };
+
+  const getSelectedParticipants = (eventId: number) => {
+    const eventParticipants = participants[eventId] || [];
+    return eventParticipants.filter(p => selectedParticipants.has(p.id));
+  };
+
+  // Handle bulk mint PoA (updated for selected participants)
   const handleBulkMint = async (eventId: number) => {
     if (!isConnected || !address) {
       toast({
@@ -518,10 +582,21 @@ export default function OrganizerDashboard() {
       return;
     }
 
+    // Check if participants are selected
+    const selectedParticipantIds = Array.from(selectedParticipants);
+    if (selectedParticipantIds.length === 0) {
+      toast({
+        title: "No participants selected",
+        description: "Please select up to 25 participants to mint PoA NFTs for batch processing.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Initialize progress dialog
     setProgressDialog({
       open: true,
-      title: "Bulk Minting PoA NFTs",
+      title: `Bulk Minting PoA NFTs (${selectedParticipantIds.length} selected)`,
       steps: [
         { id: 'prepare', title: 'Preparing bulk mint', status: 'loading' },
         { id: 'validate', title: 'Validating participants', status: 'pending' },
@@ -534,11 +609,14 @@ export default function OrganizerDashboard() {
     try {
       setLoadingStates(prev => ({...prev, [`mint-${eventId}`]: true}));
       
-      // Step 1: Prepare
+      // Step 1: Prepare - Send selected participant IDs
       const response = await fetch(`http://localhost:8000/bulk_mint_poa/${eventId}?session_token=${session.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ organizer_wallet: address })
+        body: JSON.stringify({ 
+          organizer_wallet: address,
+          participant_ids: selectedParticipantIds 
+        })
       });
 
       if (!response.ok) {
@@ -592,8 +670,9 @@ export default function OrganizerDashboard() {
         )
       }));
 
-      // Store current event ID for success handler
+      // Store current event ID and participant IDs for success handler
       (window as any).currentBulkMintEventId = eventId;
+      (window as any).currentBulkMintParticipantIds = selectedParticipantIds;
 
       // Execute bulk mint
       bulkMintWrite({
@@ -621,6 +700,7 @@ export default function OrganizerDashboard() {
   // Handle bulk mint success
   const handleBulkMintSuccess = async (receipt: any) => {
     const eventId = (window as any).currentBulkMintEventId;
+    const participantIds = (window as any).currentBulkMintParticipantIds;
     
     // Update progress - blockchain step completed
     setProgressDialog(prev => ({
@@ -666,7 +746,8 @@ export default function OrganizerDashboard() {
         body: JSON.stringify({
           event_id: eventId,
           tx_hash: receipt.transactionHash,
-          token_ids: tokenIds
+          token_ids: tokenIds,
+          participant_ids: participantIds
         })
       });
 
@@ -699,7 +780,8 @@ export default function OrganizerDashboard() {
         description: `TX Hash: ${receipt.transactionHash}\nToken IDs: ${tokenIds.join(', ')}\n\nNow you can batch transfer them to participants.`,
       });
       
-      // Refresh participant list
+      // Clear selection and refresh participant list
+      clearSelection();
       await loadParticipants(eventId);
       
     } catch (error) {
@@ -715,11 +797,22 @@ export default function OrganizerDashboard() {
     }
   };
 
-  // Handle batch transfer
+  // Handle batch transfer (updated for selected participants)
   const handleBatchTransfer = async (eventId: number) => {
     if (!isConnected || !address) {
       toast({
         title: "Please connect your wallet first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check if participants are selected
+    const selectedParticipantIds = Array.from(selectedParticipants);
+    if (selectedParticipantIds.length === 0) {
+      toast({
+        title: "No participants selected",
+        description: "Please select up to 25 participants to transfer PoA NFTs for batch processing.",
         variant: "destructive",
       });
       return;
@@ -745,7 +838,10 @@ export default function OrganizerDashboard() {
       const response = await fetch(`http://localhost:8000/batch_transfer_poa/${eventId}?session_token=${session.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ organizer_wallet: address })
+        body: JSON.stringify({ 
+          organizer_wallet: address,
+          participant_ids: selectedParticipantIds
+        })
       });
 
       if (!response.ok) {
@@ -774,6 +870,7 @@ export default function OrganizerDashboard() {
 
       // Store current event ID for success handler
       (window as any).currentBatchTransferEventId = eventId;
+      (window as any).currentBatchTransferParticipantIds = selectedParticipantIds;
 
       // Execute batch transfer
       batchTransferWrite({
@@ -798,6 +895,7 @@ export default function OrganizerDashboard() {
   // Handle batch transfer success
   const handleBatchTransferSuccess = async (receipt: any) => {
     const eventId = (window as any).currentBatchTransferEventId;
+    const participantIds = (window as any).currentBatchTransferParticipantIds;
     
     try {
       // Confirm with backend
@@ -806,7 +904,8 @@ export default function OrganizerDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           event_id: eventId,
-          tx_hash: receipt.transactionHash
+          tx_hash: receipt.transactionHash,
+          participant_ids: participantIds
         })
       });
 
@@ -815,7 +914,8 @@ export default function OrganizerDashboard() {
         description: `TX Hash: ${receipt.transactionHash}\n\nParticipants now own their PoA NFTs!`,
       });
       
-      // Refresh participant list
+      // Clear selection and refresh participant list
+      clearSelection();
       await loadParticipants(eventId);
       
     } catch (error) {
@@ -828,8 +928,18 @@ export default function OrganizerDashboard() {
     }
   };
 
-  // Generate certificates for all PoA holders
+  // Generate certificates for selected PoA holders
   const handleGenerateCertificates = async (eventId: number) => {
+    // Check if participants are selected
+    const selectedParticipantIds = Array.from(selectedParticipants);
+    if (selectedParticipantIds.length === 0) {
+      toast({
+        title: "No participants selected",
+        description: "Please select up to 25 participants to generate certificates for batch processing.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!session?.sessionToken) {
       toast({
         title: "Session expired",
@@ -899,7 +1009,10 @@ export default function OrganizerDashboard() {
       
       const response = await fetch(`http://localhost:8000/bulk_generate_certificates/${eventId}?session_token=${session.sessionToken}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          participant_ids: selectedParticipantIds
+        })
       });
 
       const result = await response.json();
@@ -946,7 +1059,8 @@ export default function OrganizerDashboard() {
         });
       }
       
-      // Refresh participant list
+      // Clear selection and refresh participant list
+      clearSelection();
       await loadParticipants(eventId);
       
     } catch (error) {
@@ -1125,12 +1239,48 @@ export default function OrganizerDashboard() {
           </div>
         </div>
 
+        {/* Selection Controls */}
+        <div className="flex flex-wrap gap-2 p-4 bg-muted/30 rounded-lg border">
+          <Button
+            onClick={() => handleSelectNext25(eventId)}
+            variant="outline"
+            size="sm"
+          >
+            Select Next 25
+          </Button>
+          <Button
+            onClick={clearSelection}
+            variant="outline"
+            size="sm"
+            disabled={selectedParticipants.size === 0}
+          >
+            Clear Selection ({selectedParticipants.size})
+          </Button>
+          <div className="text-sm text-muted-foreground flex items-center">
+            Selected: {selectedParticipants.size}/25 participants
+          </div>
+        </div>
+
         {/* Participants Table */}
         <div className="rounded-md border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-muted">
                 <tr>
+                  <th className="px-4 py-2 text-left text-sm font-medium">
+                    <Checkbox
+                      checked={selectedParticipants.size > 0}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          // Select up to 25 participants from current event
+                          const next25 = eventParticipants.slice(0, 25);
+                          setSelectedParticipants(new Set(next25.map(p => p.id)));
+                        } else {
+                          clearSelection();
+                        }
+                      }}
+                    />
+                  </th>
                   <th className="px-4 py-2 text-left text-sm font-medium">Name</th>
                   <th className="px-4 py-2 text-left text-sm font-medium">Email</th>
                   <th className="px-4 py-2 text-left text-sm font-medium">Team</th>
@@ -1171,6 +1321,12 @@ export default function OrganizerDashboard() {
 
                   return (
                     <tr key={index} className="hover:bg-muted/50">
+                      <td className="px-4 py-2">
+                        <Checkbox
+                          checked={selectedParticipants.has(participant.id)}
+                          onCheckedChange={() => handleParticipantToggle(participant.id)}
+                        />
+                      </td>
                       <td className="px-4 py-2 text-sm">{participant.name}</td>
                       <td className="px-4 py-2 text-sm">{participant.email}</td>
                       <td className="px-4 py-2 text-sm">{participant.team_name || 'N/A'}</td>
@@ -1734,7 +1890,7 @@ export default function OrganizerDashboard() {
                         disabled={loadingStates[`mint-${event.id}`] || isBulkMintLoading || isBulkMintWaiting}
                       >
                         <Factory className="h-4 w-4 mr-2" />
-                        {(loadingStates[`mint-${event.id}`] || isBulkMintLoading || isBulkMintWaiting) ? 'Minting...' : 'Bulk Mint PoA'}
+                        {(loadingStates[`mint-${event.id}`] || isBulkMintLoading || isBulkMintWaiting) ? 'Minting...' : `Mint PoA (${selectedParticipants.size})`}
                       </Button>
                       <Button
                         size="sm"
@@ -1743,7 +1899,7 @@ export default function OrganizerDashboard() {
                         disabled={loadingStates[`transfer-${event.id}`] || isBatchTransferLoading || isBatchTransferWaiting}
                       >
                         <Send className="h-4 w-4 mr-2" />
-                        {(loadingStates[`transfer-${event.id}`] || isBatchTransferLoading || isBatchTransferWaiting) ? 'Transferring...' : 'Batch Transfer'}
+                        {(loadingStates[`transfer-${event.id}`] || isBatchTransferLoading || isBatchTransferWaiting) ? 'Transferring...' : `Transfer PoA (${selectedParticipants.size})`}
                       </Button>
                       <Button
                         size="sm"
@@ -1752,7 +1908,7 @@ export default function OrganizerDashboard() {
                         disabled={loadingStates[`cert-${event.id}`]}
                       >
                         <Award className="h-4 w-4 mr-2" />
-                        {loadingStates[`cert-${event.id}`] ? 'Generating...' : 'Generate Certificates'}
+                        {loadingStates[`cert-${event.id}`] ? 'Generating...' : `Generate Certs (${selectedParticipants.size})`}
                       </Button>
                       <Button
                         size="sm"

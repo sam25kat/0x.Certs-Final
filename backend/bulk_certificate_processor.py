@@ -6,6 +6,9 @@ from email_service import EmailService
 import os
 from dotenv import load_dotenv
 import time
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 load_dotenv()
 
@@ -72,16 +75,29 @@ class BulkCertificateProcessor:
             abi=self.contract_abi
         )
 
-    def get_poa_holders_for_event(self, event_id):
-        """Get all participants who have PoA tokens for a specific event"""
+    def get_poa_holders_for_event(self, event_id, participant_ids=None):
+        """Get participants who have PoA tokens for a specific event, optionally filtered by participant IDs"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        cursor.execute("""
-            SELECT DISTINCT p.id, p.name, p.email, p.wallet_address, p.team_name, p.poa_token_id
-            FROM participants p
-            WHERE p.event_id = ? AND p.poa_status = 'transferred' AND p.poa_token_id IS NOT NULL AND p.poa_token_id > 0
-        """, (event_id,))
+        if participant_ids:
+            # Get specific selected participants with PoA tokens
+            placeholders = ','.join('?' for _ in participant_ids)
+            query = f"""
+                SELECT DISTINCT p.id, p.name, p.email, p.wallet_address, p.team_name, p.poa_token_id
+                FROM participants p
+                WHERE p.event_id = ? AND p.id IN ({placeholders}) AND p.poa_status = 'transferred' AND p.poa_token_id IS NOT NULL AND p.poa_token_id > 0
+            """
+            cursor.execute(query, [event_id] + participant_ids)
+            print(f"[DEBUG] CERTIFICATES - Querying selected participants: {participant_ids}")
+        else:
+            # Get all participants with PoA tokens (fallback)
+            cursor.execute("""
+                SELECT DISTINCT p.id, p.name, p.email, p.wallet_address, p.team_name, p.poa_token_id
+                FROM participants p
+                WHERE p.event_id = ? AND p.poa_status = 'transferred' AND p.poa_token_id IS NOT NULL AND p.poa_token_id > 0
+            """, (event_id,))
+            print(f"[DEBUG] CERTIFICATES - Querying all participants for event {event_id}")
         
         participants = cursor.fetchall()
         conn.close()
@@ -288,119 +304,180 @@ class BulkCertificateProcessor:
         
         conn.commit()
         conn.close()
+    
+    async def process_single_participant(self, participant, event_details, event_id):
+        """Process a single participant certificate in parallel"""
+        try:
+            print(f"Processing participant: {participant['name']}")
+            
+            # Generate certificate
+            cert_result = await asyncio.to_thread(
+                self.cert_generator.generate_certificate,
+                participant_name=participant['name'],
+                event_name=event_details['name'],
+                event_date=event_details['date'],
+                participant_email=participant['email'],
+                team_name=participant['team_name'],
+                template_filename=event_details.get('template')
+            )
+            
+            if not cert_result['success']:
+                return {
+                    "participant": participant['name'],
+                    "step": "certificate_generation",
+                    "success": False,
+                    "error": cert_result['error']
+                }
+            
+            # Upload to IPFS
+            ipfs_result = await asyncio.to_thread(
+                self.cert_generator.upload_to_ipfs,
+                cert_result['file_path'],
+                {
+                    "participant_name": participant['name'],
+                    "event_name": event_details['name'],
+                    "event_date": event_details['date'],
+                    "team_name": participant['team_name']
+                }
+            )
+            
+            if not ipfs_result['success']:
+                return {
+                    "participant": participant['name'],
+                    "step": "ipfs_upload",
+                    "success": False,
+                    "error": ipfs_result['error']
+                }
+            
+            # Mint NFT
+            mint_result = await asyncio.to_thread(
+                self.mint_certificate_nft,
+                participant['wallet_address'],
+                event_id,
+                ipfs_result['metadata_hash']
+            )
+            
+            if not mint_result['success']:
+                return {
+                    "participant": participant['name'],
+                    "step": "nft_minting",
+                    "success": False,
+                    "error": mint_result['error']
+                }
+            
+            # Update database
+            await asyncio.to_thread(
+                self.update_certificate_status,
+                participant['id'],
+                mint_result['token_id'],
+                mint_result['tx_hash'],
+                cert_result['file_path'],
+                ipfs_result
+            )
+            
+            return {
+                "participant": participant['name'],
+                "success": True,
+                "token_id": mint_result['token_id'],
+                "tx_hash": mint_result['tx_hash'],
+                "certificate_path": cert_result['file_path'],
+                "ipfs_url": ipfs_result['image_url'],
+                "email_data": {
+                    "name": participant['name'],
+                    "email": participant['email'],
+                    "certificate_path": cert_result['file_path'],
+                    "token_id": mint_result['token_id'],
+                    "poa_token_id": participant['poa_token_id']
+                }
+            }
+            
+        except Exception as e:
+            return {
+                "participant": participant['name'],
+                "step": "processing",
+                "success": False,
+                "error": str(e)
+            }
 
-    def process_bulk_certificates(self, event_id):
-        """Main function to process all certificates for an event"""
+    async def process_bulk_certificates(self, event_id, participant_ids=None):
+        """Main function to process certificates for selected or all participants of an event"""
+        # Call the async implementation directly
+        return await self._process_bulk_certificates_async(event_id, participant_ids)
+    
+    async def _process_bulk_certificates_async(self, event_id, participant_ids=None):
+        """Async implementation of bulk certificate processing"""
         try:
             print(f"Starting bulk certificate processing for event {event_id}")
+            print(f"Participant IDs filter: {participant_ids}")
             
             # Get event details
             event_details = self.get_event_details(event_id)
             if not event_details:
                 return {"success": False, "error": "Event not found"}
             
-            # Get PoA holders
-            participants = self.get_poa_holders_for_event(event_id)
+            # Get PoA holders (filtered by participant_ids if provided)
+            participants = self.get_poa_holders_for_event(event_id, participant_ids=participant_ids)
             if not participants:
-                return {"success": False, "error": "No PoA holders found for this event"}
+                error_msg = "No PoA holders found for selected participants" if participant_ids else "No PoA holders found for this event"
+                return {"success": False, "error": error_msg}
             
             print(f"Found {len(participants)} participants with PoA tokens")
             
             results = []
             email_data = []
             
-            for i, participant in enumerate(participants, 1):
-                print(f"Processing participant {i}/{len(participants)}: {participant['name']}")
-                
-                # Generate certificate
-                cert_result = self.cert_generator.generate_certificate(
-                    participant_name=participant['name'],
-                    event_name=event_details['name'],
-                    event_date=event_details['date'],
-                    participant_email=participant['email'],
-                    team_name=participant['team_name'],
-                    template_filename=event_details.get('template')
-                )
-                
-                if not cert_result['success']:
+            # Process participants in parallel with controlled concurrency
+            print(f"Processing {len(participants)} participants in parallel...")
+            
+            # Use semaphore to limit concurrent operations (prevent RPC overload)
+            semaphore = asyncio.Semaphore(5)  # Max 5 concurrent operations
+            
+            async def process_with_semaphore(participant):
+                async with semaphore:
+                    return await self.process_single_participant(participant, event_details, event_id)
+            
+            # Create tasks for parallel processing
+            tasks = [process_with_semaphore(participant) for participant in participants]
+            
+            # Execute all tasks in parallel
+            parallel_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Separate results and email data
+            for result in parallel_results:
+                if isinstance(result, Exception):
                     results.append({
-                        "participant": participant['name'],
-                        "step": "certificate_generation",
+                        "participant": "Unknown",
+                        "step": "processing",
                         "success": False,
-                        "error": cert_result['error']
+                        "error": str(result)
                     })
                     continue
-                
-                # Upload to IPFS
-                ipfs_result = self.cert_generator.upload_to_ipfs(
-                    cert_result['file_path'],
-                    {
-                        "participant_name": participant['name'],
-                        "event_name": event_details['name'],
-                        "event_date": event_details['date'],
-                        "team_name": participant['team_name']
-                    }
-                )
-                
-                if not ipfs_result['success']:
+                    
+                if result['success']:
                     results.append({
-                        "participant": participant['name'],
-                        "step": "ipfs_upload",
-                        "success": False,
-                        "error": ipfs_result['error']
+                        "participant": result['participant'],
+                        "success": True,
+                        "token_id": result['token_id'],
+                        "tx_hash": result['tx_hash'],
+                        "certificate_path": result['certificate_path'],
+                        "ipfs_url": result['ipfs_url']
                     })
-                    continue
-                
-                # Mint NFT
-                mint_result = self.mint_certificate_nft(
-                    participant['wallet_address'],
-                    event_id,
-                    ipfs_result['metadata_hash']
-                )
-                
-                if not mint_result['success']:
+                    email_data.append(result['email_data'])
+                else:
                     results.append({
-                        "participant": participant['name'],
-                        "step": "nft_minting",
+                        "participant": result['participant'],
+                        "step": result['step'],
                         "success": False,
-                        "error": mint_result['error']
+                        "error": result['error']
                     })
-                    continue
-                
-                # Update database
-                self.update_certificate_status(
-                    participant['id'],
-                    mint_result['token_id'],
-                    mint_result['tx_hash'],
-                    cert_result['file_path'],
-                    ipfs_result
-                )
-                
-                # Prepare email data
-                email_data.append({
-                    "name": participant['name'],
-                    "email": participant['email'],
-                    "certificate_path": cert_result['file_path'],
-                    "token_id": mint_result['token_id'],
-                    "poa_token_id": participant['poa_token_id']  # Add PoA token ID from participant data
-                })
-                
-                results.append({
-                    "participant": participant['name'],
-                    "success": True,
-                    "token_id": mint_result['token_id'],
-                    "tx_hash": mint_result['tx_hash'],
-                    "certificate_path": cert_result['file_path'],
-                    "ipfs_url": ipfs_result['image_url']
-                })
-                
-                # Small delay to avoid overwhelming the network
-                time.sleep(2)
+            
+            print(f"Parallel processing completed. {len([r for r in results if r['success']])} successful, {len([r for r in results if not r['success']])} failed")
             
             # Send bulk emails only if there's new data
             if email_data:
                 print("Sending certificates via email...")
-                email_results = self.email_service.send_bulk_certificate_emails(
+                email_results = await asyncio.to_thread(
+                    self.email_service.send_bulk_certificate_emails,
                     email_data,
                     event_details['name'],
                     self.contract_address

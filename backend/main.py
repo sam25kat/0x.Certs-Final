@@ -47,12 +47,15 @@ class DatabasePool:
     async def close_pool(self):
         pass  # No pool to close
 
-# Async email worker
-async def email_worker():
+# Async email worker with worker ID
+async def email_worker(worker_id: int):
+    print(f"Email worker {worker_id} started")
     while True:
         try:
             email_task = await email_queue.get()
             if email_task is None:
+                print(f"Email worker {worker_id} shutting down")
+                email_queue.task_done()
                 break
             
             # Process email task
@@ -61,13 +64,15 @@ async def email_worker():
             body = email_task.get('body')
             
             if all([to_email, subject, body]):
+                print(f"Worker {worker_id} processing email to {to_email}")
                 # Run email sending in thread pool to avoid blocking
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, send_email_sync, to_email, subject, body)
+                print(f"Worker {worker_id} completed email to {to_email}")
             
             email_queue.task_done()
         except Exception as e:
-            print(f"Email worker error: {e}")
+            print(f"Email worker {worker_id} error: {e}")
             continue
 
 def send_email_sync(to_email: str, subject: str, body: str):
@@ -1023,9 +1028,12 @@ async def startup_event():
     init_db()
     print("Database initialized with connection pool")
     
-    # Start email worker
-    asyncio.create_task(email_worker())
-    print("Email worker started")
+    # Start 25 concurrent email workers
+    email_workers = []
+    for worker_id in range(1, 26):  # Workers 1-25
+        worker_task = asyncio.create_task(email_worker(worker_id))
+        email_workers.append(worker_task)
+    print("25 email workers started for concurrent processing")
     
     # Start bot polling in background thread
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
@@ -1041,8 +1049,11 @@ async def shutdown_event():
     global db_pool
     if db_pool:
         await db_pool.close_pool()
-    # Stop email worker
-    await email_queue.put(None)
+    # Stop all 25 email workers
+    print("Shutting down email workers...")
+    for i in range(25):
+        await email_queue.put(None)
+    print("Email workers shutdown initiated")
 
 @app.post("/organizer/login")
 async def organizer_login(request: OrganizerLoginRequest):
@@ -1736,10 +1747,12 @@ async def generate_poa_metadata_endpoint(event_id: int):
 
 @app.post("/bulk_mint_poa/{event_id}")
 async def bulk_mint_poa(event_id: int, request: dict):
-    """Bulk mint PoA NFTs for all registered participants of an event"""
+    """Bulk mint PoA NFTs for selected or all registered participants of an event"""
     organizer_wallet = request.get("organizer_wallet")
+    participant_ids = request.get("participant_ids", [])  # Optional list of specific participant IDs
     
     print(f"[DEBUG] BULK MINT DEBUG - Received organizer_wallet: {organizer_wallet}")
+    print(f"[DEBUG] BULK MINT DEBUG - Received participant_ids: {participant_ids}")
     
     if not organizer_wallet:
         raise HTTPException(status_code=400, detail="Organizer wallet address required")
@@ -1748,11 +1761,23 @@ async def bulk_mint_poa(event_id: int, request: dict):
     cursor = conn.cursor()
     
     try:
-        # Get all registered participants for this event
-        cursor.execute(
-            "SELECT wallet_address, name FROM participants WHERE event_id = ? AND poa_status = 'registered'",
-            (event_id,)
-        )
+        # Get participants based on selection
+        if participant_ids:
+            # Get specific selected participants
+            placeholders = ','.join('?' for _ in participant_ids)
+            cursor.execute(
+                f"SELECT wallet_address, name FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'registered'",
+                [event_id] + participant_ids
+            )
+            print(f"[DEBUG] BULK MINT DEBUG - Querying selected participants: {participant_ids}")
+        else:
+            # Get all registered participants for this event (fallback)
+            cursor.execute(
+                "SELECT wallet_address, name FROM participants WHERE event_id = ? AND poa_status = 'registered'",
+                (event_id,)
+            )
+            print(f"[DEBUG] BULK MINT DEBUG - Querying all participants for event {event_id}")
+        
         participants = cursor.fetchall()
         
         if not participants:
@@ -1811,6 +1836,7 @@ async def confirm_bulk_mint_poa(request: dict):
     event_id = request.get("event_id")
     tx_hash = request.get("tx_hash")
     token_ids = request.get("token_ids", [])
+    participant_ids = request.get("participant_ids", [])  # Accept specific participant IDs
     
     if not all([event_id, tx_hash]):
         raise HTTPException(status_code=400, detail="Missing required fields")
@@ -1819,11 +1845,20 @@ async def confirm_bulk_mint_poa(request: dict):
     cursor = conn.cursor()
     
     try:
-        # Get all registered participants for this event
-        cursor.execute(
-            "SELECT id, wallet_address FROM participants WHERE event_id = ? AND poa_status = 'registered' ORDER BY id",
-            (event_id,)
-        )
+        # Get participants based on selection
+        if participant_ids:
+            # Get specific selected participants that were minted
+            placeholders = ','.join('?' for _ in participant_ids)
+            cursor.execute(
+                f"SELECT id, wallet_address FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'registered' ORDER BY id",
+                [event_id] + participant_ids
+            )
+        else:
+            # Fallback to all registered participants for this event
+            cursor.execute(
+                "SELECT id, wallet_address FROM participants WHERE event_id = ? AND poa_status = 'registered' ORDER BY id",
+                (event_id,)
+            )
         participants = cursor.fetchall()
         
         # Update each participant's status to minted
@@ -1907,8 +1942,12 @@ async def update_poa_metadata_endpoint(event_id: int, request: dict):
 
 @app.post("/batch_transfer_poa/{event_id}")
 async def batch_transfer_poa(event_id: int, request: dict):
-    """Batch transfer PoA NFTs from organizer to participants"""
+    """Batch transfer PoA NFTs from organizer to selected or all participants"""
     organizer_wallet = request.get("organizer_wallet")
+    participant_ids = request.get("participant_ids", [])  # Optional list of specific participant IDs
+    
+    print(f"[DEBUG] BATCH TRANSFER DEBUG - Received organizer_wallet: {organizer_wallet}")
+    print(f"[DEBUG] BATCH TRANSFER DEBUG - Received participant_ids: {participant_ids}")
     
     if not organizer_wallet:
         raise HTTPException(status_code=400, detail="Organizer wallet address required")
@@ -1917,11 +1956,22 @@ async def batch_transfer_poa(event_id: int, request: dict):
     cursor = conn.cursor()
     
     try:
-        # Get all minted but not transferred participants
-        cursor.execute(
-            "SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = ? AND poa_status = 'minted' AND poa_token_id IS NOT NULL",
-            (event_id,)
-        )
+        # Get participants based on selection
+        if participant_ids:
+            # Get specific selected participants with minted NFTs
+            placeholders = ','.join('?' for _ in participant_ids)
+            cursor.execute(
+                f"SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'minted' AND poa_token_id IS NOT NULL",
+                [event_id] + participant_ids
+            )
+            print(f"[DEBUG] BATCH TRANSFER DEBUG - Querying selected participants: {participant_ids}")
+        else:
+            # Get all minted but not transferred participants (fallback)
+            cursor.execute(
+                "SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = ? AND poa_status = 'minted' AND poa_token_id IS NOT NULL",
+                (event_id,)
+            )
+            print(f"[DEBUG] BATCH TRANSFER DEBUG - Querying all minted participants for event {event_id}")
         participants = cursor.fetchall()
         
         if not participants:
@@ -1990,6 +2040,7 @@ async def confirm_batch_transfer_poa(request: dict):
     """Confirm that PoA NFTs were batch transferred"""
     event_id = request.get("event_id")
     tx_hash = request.get("tx_hash")
+    participant_ids = request.get("participant_ids", [])  # Accept specific participant IDs
     
     if not all([event_id, tx_hash]):
         raise HTTPException(status_code=400, detail="Missing required fields")
@@ -1998,11 +2049,20 @@ async def confirm_batch_transfer_poa(request: dict):
     cursor = conn.cursor()
     
     try:
-        # Update all minted participants to transferred status
-        cursor.execute(
-            "UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = ? AND poa_status = 'minted'",
-            (event_id,)
-        )
+        # Update participants based on selection
+        if participant_ids:
+            # Update specific selected participants to transferred status
+            placeholders = ','.join('?' for _ in participant_ids)
+            cursor.execute(
+                f"UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'minted'",
+                [event_id] + participant_ids
+            )
+        else:
+            # Fallback to update all minted participants to transferred status
+            cursor.execute(
+                "UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = ? AND poa_status = 'minted'",
+                (event_id,)
+            )
         
         updated_count = cursor.rowcount
         conn.commit()
@@ -2304,7 +2364,7 @@ async def get_participants(event_id: int):
         cursor = conn.cursor()
         
         cursor.execute(
-            """SELECT wallet_address, name, email, team_name, poa_status, poa_token_id, 
+            """SELECT id, wallet_address, name, email, team_name, poa_status, poa_token_id, 
                       poa_minted_at, poa_transferred_at, certificate_status, certificate_token_id,
                       certificate_minted_at, certificate_transferred_at, certificate_ipfs_hash
                FROM participants WHERE event_id = ?""",
@@ -2319,25 +2379,27 @@ async def get_participants(event_id: int):
         participants = []
         
         for db_participant in db_participants:
-            wallet_address = db_participant[0]
+            participant_id = db_participant[0]
+            wallet_address = db_participant[1]
             
             participant = {
+                "id": participant_id,
                 "wallet_address": wallet_address,
                 "event_id": event_id,
-                "name": db_participant[1] or 'Unknown',
-                "email": db_participant[2] or 'Unknown',
-                "team_name": db_participant[3],
-                "poa_status": db_participant[4] or 'registered',
-                "poa_token_id": db_participant[5],
-                "poa_minted_at": db_participant[6],
-                "poa_transferred_at": db_participant[7],
-                "poa_minted": db_participant[5] is not None,  # True if token ID exists
-                "certificate_status": db_participant[8] or 'not_eligible',
-                "certificate_token_id": db_participant[9],
-                "certificate_minted_at": db_participant[10],
-                "certificate_transferred_at": db_participant[11],
-                "certificate_minted": db_participant[9] is not None,  # True if token ID exists
-                "certificate_ipfs": db_participant[12]
+                "name": db_participant[2] or 'Unknown',
+                "email": db_participant[3] or 'Unknown',
+                "team_name": db_participant[4],
+                "poa_status": db_participant[5] or 'registered',
+                "poa_token_id": db_participant[6],
+                "poa_minted_at": db_participant[7],
+                "poa_transferred_at": db_participant[8],
+                "poa_minted": db_participant[6] is not None,  # True if token ID exists
+                "certificate_status": db_participant[9] or 'not_eligible',
+                "certificate_token_id": db_participant[10],
+                "certificate_minted_at": db_participant[11],
+                "certificate_transferred_at": db_participant[12],
+                "certificate_minted": db_participant[10] is not None,  # True if token ID exists
+                "certificate_ipfs": db_participant[13]
             }
             
             participants.append(participant)
@@ -2659,11 +2721,18 @@ async def get_config():
     }
 
 @app.post("/bulk_generate_certificates/{event_id}")
-async def bulk_generate_certificates(event_id: int):
-    """Generate and mint certificates for all PoA holders of an event"""
+async def bulk_generate_certificates(event_id: int, request: dict = None):
+    """Generate and mint certificates for selected or all PoA holders of an event"""
+    participant_ids = []
+    if request:
+        participant_ids = request.get("participant_ids", [])
+    
+    print(f"[DEBUG] BULK CERTIFICATES DEBUG - Event ID: {event_id}")
+    print(f"[DEBUG] BULK CERTIFICATES DEBUG - Participant IDs: {participant_ids}")
+    
     try:
         processor = BulkCertificateProcessor()
-        result = processor.process_bulk_certificates(event_id)
+        result = await processor.process_bulk_certificates(event_id, participant_ids=participant_ids)
         
         if result["success"]:
             return {
