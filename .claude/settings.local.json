@@ -34,7 +34,9 @@
       "Bash(dir \"C:\\Users\\JARVIS\\Desktop\\0x.Certs\\blockchain\\scripts\")",
       "Bash(dir \"C:\\Users\\JARVIS\\Desktop\\0x.Certs\\new frontend\\src\\components\\ui\")",
       "Bash(npx eslint:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "WebFetch(domain:reactbits.dev)",
+      "Bash(npm ls:*)"
     ],
     "deny": [],
     "ask": []
