@@ -1,6 +1,7 @@
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Hexagon, Shield, Users } from 'lucide-react';
 
 export const Header = () => {
@@ -15,6 +16,7 @@ export const Header = () => {
           <span className="text-2xl font-bold fira-code-bold">
             <span className="text-white">0x</span><span className="gradient-text">.Certs</span>
           </span>
+          <Badge variant="secondary" className="ml-1 text-xs">BETA</Badge>
         </Link>
 
         <nav className="hidden md:flex items-center gap-6">
