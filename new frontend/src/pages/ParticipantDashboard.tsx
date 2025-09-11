@@ -38,7 +38,7 @@ export default function ParticipantDashboard() {
     if (!address) return;
     
     try {
-      const result = await api.getParticipantStatus(address);
+      const result = await api.getParticipantStatusFromDB(address);
       setParticipantStatus(result);
     } catch (error) {
       console.error('Error loading NFT status:', error);
@@ -194,21 +194,21 @@ export default function ParticipantDashboard() {
         if (errorMessage.includes('wallet address is already registered') || errorMessage.includes('already registered')) {
           toast({
             title: "Wallet Already Registered",
-            description: `🚫 ${errorMessage}\n\nPlease use a different wallet address or contact support if this is incorrect.`,
+            description: `${errorMessage}\n\nPlease use a different wallet address or contact support if this is incorrect.`,
             variant: "destructive",
           });
           return;
         } else if (errorMessage.includes('already completed the full process')) {
           toast({
             title: "Already Completed",
-            description: `✅ ${errorMessage}`,
+            description: `${errorMessage}`,
             variant: "destructive",
           });
           return;
         } else if (errorMessage.includes('Event not found') || errorMessage.includes('not found')) {
           toast({
             title: "Event not found",
-            description: `❌ Event not found. Please check the event code and try again.`,
+            description: `Event not found. Please check the event code and try again.`,
             variant: "destructive",
           });
           return;
@@ -281,32 +281,32 @@ export default function ParticipantDashboard() {
           const getPoAStatusDisplay = () => {
             switch(nftStatus.poa_status) {
               case 'registered':
-                return { text: '📝 Registered - Waiting for mint', color: 'bg-yellow-100 border-yellow-200', textColor: 'text-yellow-800' };
+                return { text: 'Registered - Waiting for mint', color: 'bg-yellow-100 border-yellow-200', textColor: 'text-yellow-800' };
               case 'minted':
-                return { text: '🏭 Minted - Waiting for transfer', color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
+                return { text: 'Minted - Waiting for transfer', color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
               case 'transferred':
-                return { text: `✅ PoA NFT Received #${nftStatus.poa_token_id}`, color: 'bg-green-100 border-green-200', textColor: 'text-green-800' };
+                return { text: `PoA NFT Received #${nftStatus.poa_token_id}`, color: 'bg-green-100 border-green-200', textColor: 'text-green-800' };
               default:
-                return { text: '❓ Unknown status', color: 'bg-red-100 border-red-200', textColor: 'text-red-800' };
+                return { text: 'Unknown status', color: 'bg-red-100 border-red-200', textColor: 'text-red-800' };
             }
           };
 
           const getCertStatusDisplay = () => {
             switch(nftStatus.certificate_status) {
               case 'not_eligible':
-                return { text: '⏳ Not eligible yet', color: 'bg-gray-100 border-gray-200', textColor: 'text-gray-800' };
+                return { text: 'Not eligible yet', color: 'bg-gray-100 border-gray-200', textColor: 'text-gray-800' };
               case 'eligible':
-                return { text: '🎯 Eligible - Waiting for generation', color: 'bg-yellow-100 border-yellow-200', textColor: 'text-yellow-800' };
+                return { text: 'Eligible - Waiting for generation', color: 'bg-yellow-100 border-yellow-200', textColor: 'text-yellow-800' };
               case 'generated':
-                return { text: '🏭 Generated - Waiting for mint', color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
+                return { text: 'Generated - Waiting for mint', color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
               case 'completed':
-                return { text: `✅ Certificate Completed #${nftStatus.certificate_token_id || 'N/A'}`, color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
+                return { text: `Certificate Completed #${nftStatus.certificate_token_id || 'N/A'}`, color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
               case 'minted':
-                return { text: '🏭 Minted - Waiting for transfer', color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
+                return { text: 'Minted - Waiting for transfer', color: 'bg-blue-100 border-blue-200', textColor: 'text-blue-800' };
               case 'transferred':
-                return { text: `🏆 Certificate NFT Received #${nftStatus.certificate_token_id}`, color: 'bg-green-100 border-green-200', textColor: 'text-green-800' };
+                return { text: `Certificate NFT Received #${nftStatus.certificate_token_id}`, color: 'bg-green-100 border-green-200', textColor: 'text-green-800' };
               default:
-                return { text: `❓ Unknown status: ${nftStatus.certificate_status}`, color: 'bg-red-100 border-red-200', textColor: 'text-red-800' };
+                return { text: `Unknown status: ${nftStatus.certificate_status}`, color: 'bg-red-100 border-red-200', textColor: 'text-red-800' };
             }
           };
 
@@ -321,7 +321,7 @@ export default function ParticipantDashboard() {
               <CardContent className="space-y-4">
                 <div className={`p-4 rounded-lg border-2 ${poaStatus.color}`}>
                   <div className={`font-medium ${poaStatus.textColor}`}>
-                    🎖️ PoA Status: {poaStatus.text}
+                    PoA Status: {poaStatus.text}
                   </div>
                   {nftStatus.poa_transferred_at && (
                     <div className="text-sm text-muted-foreground mt-2">
@@ -331,7 +331,7 @@ export default function ParticipantDashboard() {
                 </div>
                 <div className={`p-4 rounded-lg border-2 ${certStatus.color}`}>
                   <div className={`font-medium ${certStatus.textColor}`}>
-                    🏆 Certificate Status: {certStatus.text}
+                    Certificate Status: {certStatus.text}
                   </div>
                   {nftStatus.certificate_transferred_at && (
                     <div className="text-sm text-muted-foreground mt-2">
@@ -351,7 +351,7 @@ export default function ParticipantDashboard() {
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="text-center">
-          <h1 className="text-4xl font-bold gradient-text mb-2">🎖️ Participant Dashboard</h1>
+          <h1 className="text-4xl font-bold gradient-text mb-2">Participant Dashboard</h1>
           <p className="text-muted-foreground">Register for events and track your NFT progress</p>
           <div className="mt-4 text-sm text-muted-foreground">
             Connected wallet: {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Not connected'}
@@ -427,7 +427,7 @@ export default function ParticipantDashboard() {
                   <CardHeader className="pb-4">
                     <div className="flex items-center gap-2">
                       <CardTitle className="text-base flex items-center gap-2">
-                        📱 Telegram Community Verification *
+                        Telegram Community Verification *
                         {telegramVerified && (
                           <Badge variant="default" className="bg-green-600">
                             VERIFIED
@@ -484,7 +484,7 @@ export default function ParticipantDashboard() {
                               Verifying...
                             </>
                           ) : (
-                            '🔍 Verify'
+                            'Verify'
                           )}
                         </Button>
                       ) : (
@@ -497,7 +497,7 @@ export default function ParticipantDashboard() {
 
                     {!telegramVerified && (
                       <div className="p-4 bg-muted rounded-lg space-y-3">
-                        <div className="font-medium text-sm">🚀 New Verification Process:</div>
+                        <div className="font-medium text-sm">New Verification Process:</div>
                         <div className="space-y-2 text-sm text-muted-foreground">
                           <div><strong>Step 1:</strong> Join our Telegram community</div>
                           <div><strong>Step 2:</strong> Message <code className="bg-background px-1.5 py-0.5 rounded text-xs">/0xday</code> in the community group</div>
@@ -516,16 +516,16 @@ export default function ParticipantDashboard() {
                               rel="noopener noreferrer"
                               className="flex items-center gap-2"
                             >
-                              📱 Join Community
+                              Join Community
                               <ExternalLink className="h-3 w-3" />
                             </a>
                           </Button>
                           <Badge variant="secondary" className="flex items-center gap-1">
-                            ⚡ Then type: /0xday
+                            Then type: /0xday
                           </Badge>
                         </div>
                         <div className="text-xs text-muted-foreground italic">
-                          💡 <strong>Tip:</strong> You can message /0xday directly in the community group or privately to our bot @Certs0xDay_bot
+                          <strong>Tip:</strong> You can message /0xday directly in the community group or privately to our bot @Certs0xDay_bot
                         </div>
                       </div>
                     )}
@@ -547,15 +547,15 @@ export default function ParticipantDashboard() {
                   ) : (
                     !formData.telegram_username ? (
                       <>
-                        🔒 Telegram Username Required
+                        Telegram Username Required
                       </>
                     ) : !telegramVerified ? (
                       <>
-                        🔒 Complete Telegram Verification First
+                        Complete Telegram Verification First
                       </>
                     ) : (
                       <>
-                        🚀 Register for Event
+                        Register for Event
                       </>
                     )
                   )}
@@ -569,7 +569,7 @@ export default function ParticipantDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Award className="h-5 w-5 text-primary" />
-                🎖️ My NFT Status
+                My NFT Status
               </CardTitle>
               <CardDescription>
                 Your NFT progress across all events
@@ -587,7 +587,7 @@ export default function ParticipantDashboard() {
                   variant="ghost"
                   size="sm"
                 >
-                  🔄 Refresh
+                  Refresh
                 </Button>
               </div>
             </CardHeader>

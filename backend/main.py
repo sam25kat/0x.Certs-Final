@@ -2479,6 +2479,69 @@ async def get_participant_status(wallet_address: str):
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/participant_status_db/{wallet_address}")
+async def get_participant_status_from_db(wallet_address: str):
+    """Get participant status directly from database for a specific wallet"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Get all participant records for this wallet with event information
+        cursor.execute("""
+            SELECT 
+                p.*,
+                e.event_name,
+                e.event_date,
+                e.event_code
+            FROM participants p
+            JOIN events e ON p.event_id = e.id
+            WHERE LOWER(p.wallet_address) = LOWER(?)
+            ORDER BY p.registered_at DESC
+        """, (wallet_address,))
+        
+        participants = cursor.fetchall()
+        conn.close()
+        
+        if not participants:
+            return {
+                "wallet_address": wallet_address,
+                "events": {}
+            }
+        
+        # Group by event_id and structure the response
+        events_status = {}
+        
+        for participant in participants:
+            event_id = participant[5]  # event_id column
+            
+            events_status[str(event_id)] = {
+                "event_name": participant[24],  # event_name
+                "event_date": participant[25],  # event_date
+                "event_code": participant[26],  # event_code
+                "participant_name": participant[3],  # name
+                "participant_email": participant[2],  # email
+                "team_name": participant[4],  # team_name
+                "registered_at": participant[6],  # registered_at
+                "poa_status": participant[10],  # poa_status
+                "poa_token_id": participant[11],  # poa_token_id
+                "poa_minted_at": participant[12],  # poa_minted_at
+                "poa_transferred_at": participant[13],  # poa_transferred_at
+                "certificate_status": participant[14],  # certificate_status
+                "certificate_token_id": participant[15],  # certificate_token_id
+                "certificate_minted_at": participant[16],  # certificate_minted_at
+                "certificate_transferred_at": participant[17],  # certificate_transferred_at
+                "telegram_username": participant[21],  # telegram_username
+                "telegram_verified": bool(participant[22])  # telegram_verified
+            }
+        
+        return {
+            "wallet_address": wallet_address,
+            "events": events_status
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/config")
 async def get_config():
     """Get frontend configuration"""

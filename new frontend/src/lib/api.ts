@@ -121,6 +121,13 @@ export const api = {
     return response.json();
   },
 
+  // Participant status from database
+  getParticipantStatusFromDB: async (walletAddress: string): Promise<any> => {
+    const response = await fetch(`${API_BASE_URL}/participant_status_db/${walletAddress}`);
+    if (!response.ok) throw new Error('Failed to fetch participant status from database');
+    return response.json();
+  },
+
   // Telegram verification
   verifyTelegramMembership: async (telegramUsername: string): Promise<{ message: string }> => {
     const response = await fetch(`${API_BASE_URL}/verify-telegram-membership`, {
