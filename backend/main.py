@@ -10,11 +10,15 @@ import base64
 import secrets
 import threading
 import time
+import asyncio
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, List
 from io import BytesIO
+from contextlib import asynccontextmanager
+
+import aiosqlite
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,7 +30,71 @@ from bulk_certificate_processor import BulkCertificateProcessor
 
 load_dotenv()
 
-app = FastAPI(title="Hackathon Certificate API")
+# Global database pool
+db_pool = None
+email_queue = asyncio.Queue()
+
+# Simplified database connection - no pooling to avoid threading issues
+class DatabasePool:
+    def __init__(self, db_path: str, max_connections: int = 10):
+        self.db_path = db_path
+        self.max_connections = max_connections
+    
+    async def get_connection(self):
+        # Create fresh connection each time to avoid threading issues
+        return await aiosqlite.connect(self.db_path)
+    
+    async def close_pool(self):
+        pass  # No pool to close
+
+# Async email worker
+async def email_worker():
+    while True:
+        try:
+            email_task = await email_queue.get()
+            if email_task is None:
+                break
+            
+            # Process email task
+            to_email = email_task.get('to_email')
+            subject = email_task.get('subject')
+            body = email_task.get('body')
+            
+            if all([to_email, subject, body]):
+                # Run email sending in thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, send_email_sync, to_email, subject, body)
+            
+            email_queue.task_done()
+        except Exception as e:
+            print(f"Email worker error: {e}")
+            continue
+
+def send_email_sync(to_email: str, subject: str, body: str):
+    """Synchronous email sending for thread pool"""
+    try:
+        msg = MIMEText(body)
+        msg['Subject'] = subject
+        msg['From'] = FROM_EMAIL
+        msg['To'] = to_email
+        
+        server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASS)
+        server.send_message(msg)
+        server.quit()
+        print(f"Email sent successfully to {to_email}")
+        return True
+    except Exception as e:
+        print(f"Failed to send email to {to_email}: {e}")
+        return False
+
+app = FastAPI(
+    title="Hackathon Certificate API",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
 
 def generate_poa_metadata(event_name, participant_name):
     """Generate PoA NFT metadata with event name and participant name from database"""
@@ -587,7 +655,17 @@ def generate_certificate(template_path: str, participant_name: str, event_name: 
         raise Exception(f"Failed to generate certificate: {str(e)}")
 
 def send_email(to_email: str, subject: str, body: str):
-    """Send email via SMTP"""
+    """Queue email for async processing"""
+    email_task = {
+        'to_email': to_email,
+        'subject': subject,
+        'body': body
+    }
+    asyncio.create_task(email_queue.put(email_task))
+    print(f"Email queued for: {to_email}")
+
+def send_email_sync_old(to_email: str, subject: str, body: str):
+    """Send email via SMTP - old sync version kept for compatibility"""
     try:
         msg = MIMEMultipart()
         msg['From'] = FROM_EMAIL
@@ -936,8 +1014,18 @@ def bot_polling_thread():
 # API endpoints
 @app.on_event("startup")
 async def startup_event():
+    global db_pool
+    
+    # Initialize database connection pool
+    db_pool = DatabasePool(DB_PATH, max_connections=20)
+    
+    # Initialize database schema (sync)
     init_db()
-    print("Database initialized")
+    print("Database initialized with connection pool")
+    
+    # Start email worker
+    asyncio.create_task(email_worker())
+    print("Email worker started")
     
     # Start bot polling in background thread
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
@@ -947,8 +1035,14 @@ async def startup_event():
         print("Telegram bot polling thread started successfully!")
     else:
         print("Telegram bot not configured, skipping polling thread")
-        print(f"TELEGRAM_BOT_TOKEN: {'Found' if TELEGRAM_BOT_TOKEN else 'Missing'}")
-        print(f"TELEGRAM_CHAT_ID: {'Found' if TELEGRAM_CHAT_ID else 'Missing'}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    global db_pool
+    if db_pool:
+        await db_pool.close_pool()
+    # Stop email worker
+    await email_queue.put(None)
 
 @app.post("/organizer/login")
 async def organizer_login(request: OrganizerLoginRequest):
@@ -1228,93 +1322,106 @@ async def register_participant(participant: ParticipantRegister):
     """Register a participant and mint PoA NFT"""
     print(f"Registration attempt: {participant.wallet_address} for event code: {participant.event_code}")
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
+    conn = await db_pool.get_connection()
     try:
-        # Validate event code
-        cursor.execute(
-            "SELECT id, event_name FROM events WHERE event_code = ? AND is_active = TRUE",
-            (participant.event_code,)
-        )
-        event = cursor.fetchone()
-        
-        if not event:
-            print(f"Invalid event code: {participant.event_code}")
-            raise HTTPException(status_code=404, detail=f"Invalid event code: {participant.event_code}")
-        
-        event_id, event_name = event
-        print(f"Found event: {event_name} (ID: {event_id})")
-        
-        # Check if this wallet address is already used for this event
-        cursor.execute(
-            "SELECT id, name, email, poa_minted, certificate_minted FROM participants WHERE wallet_address = ? AND event_id = ?",
-            (participant.wallet_address, event_id)
-        )
-        
-        existing = cursor.fetchone()
-        if existing:
-            participant_id, existing_name, existing_email, poa_minted, certificate_minted = existing
+        try:
+            # Enable WAL mode for better concurrency
+            await conn.execute("PRAGMA journal_mode=WAL")
+            await conn.execute("PRAGMA synchronous=NORMAL")
+            await conn.execute("PRAGMA cache_size=10000")
+            await conn.execute("PRAGMA temp_store=memory")
             
-            # Check if it's the same person (same name and email) trying to register again
-            if existing_name.lower() == participant.name.lower() and existing_email.lower() == participant.email.lower():
-                print(f"[ERROR] Same user already registered: {participant.wallet_address}")
+            # Validate event code
+            async with conn.execute(
+                "SELECT id, event_name FROM events WHERE event_code = ? AND is_active = TRUE",
+                (participant.event_code,)
+            ) as cursor:
+                event = await cursor.fetchone()
+            
+            if not event:
+                print(f"Invalid event code: {participant.event_code}")
+                raise HTTPException(status_code=404, detail=f"Invalid event code: {participant.event_code}")
+            
+            event_id, event_name = event
+            print(f"Found event: {event_name} (ID: {event_id})")
+            
+            # Check if this wallet address is already used for this event
+            async with conn.execute(
+                "SELECT id, name, email, poa_minted, certificate_minted FROM participants WHERE wallet_address = ? AND event_id = ?",
+                (participant.wallet_address, event_id)
+            ) as cursor:
+                existing = await cursor.fetchone()
+            
+            if existing:
+                participant_id, existing_name, existing_email, poa_minted, certificate_minted = existing
                 
-                # Provide specific error message based on their completion status
-                if certificate_minted:
-                    error_msg = f"You have already completed the full process for '{event_name}' including receiving your certificate NFT. Each participant can only register once per event."
-                elif poa_minted:
-                    error_msg = f"You have already registered and received your PoA NFT for '{event_name}'. Each participant can only register once per event."
+                # Check if it's the same person (same name and email) trying to register again
+                if existing_name.lower() == participant.name.lower() and existing_email.lower() == participant.email.lower():
+                    print(f"[ERROR] Same user already registered: {participant.wallet_address}")
+                    
+                    # Provide specific error message based on their completion status
+                    if certificate_minted:
+                        error_msg = f"You have already completed the full process for '{event_name}' including receiving your certificate NFT. Each participant can only register once per event."
+                    elif poa_minted:
+                        error_msg = f"You have already registered and received your PoA NFT for '{event_name}'. Each participant can only register once per event."
+                    else:
+                        error_msg = f"Already registered for '{event_name}' with this wallet address. Each participant can only register once per event."
+                    
+                    raise HTTPException(
+                        status_code=400,
+                        detail=error_msg
+                    )
                 else:
-                    error_msg = f"Already registered for '{event_name}' with this wallet address. Each participant can only register once per event."
-                
-                raise HTTPException(
-                    status_code=400,
-                    detail=error_msg
-                )
-            else:
-                # Different person trying to use the same wallet address
-                print(f"[ERROR] Wallet address already in use: {participant.wallet_address} by {existing_name} ({existing_email})")
-                raise HTTPException(
-                    status_code=400, 
-                    detail={
-                        "error": "WALLET_ADDRESS_IN_USE",
-                        "message": f"This wallet address is already registered for this event by another participant: {existing_name} ({existing_email}). Each participant must use a unique wallet address.",
-                        "existing_participant": {
-                            "name": existing_name,
-                            "email": existing_email
+                    # Different person trying to use the same wallet address
+                    print(f"[ERROR] Wallet address already in use: {participant.wallet_address} by {existing_name} ({existing_email})")
+                    raise HTTPException(
+                        status_code=400, 
+                        detail={
+                            "error": "WALLET_ADDRESS_IN_USE",
+                            "message": f"This wallet address is already registered for this event by another participant: {existing_name} ({existing_email}). Each participant must use a unique wallet address.",
+                            "existing_participant": {
+                                "name": existing_name,
+                                "email": existing_email
+                            }
                         }
-                    }
-                )
-        
-        # Register new participant
-        print(f"[INFO] Registering new participant: {participant.name}")
-        cursor.execute(
-            """INSERT INTO participants 
-               (wallet_address, email, name, team_name, event_id, telegram_username, telegram_verified, telegram_verified_at) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (participant.wallet_address, participant.email, participant.name, participant.team_name, event_id, 
-             participant.telegram_username, 1 if participant.telegram_username else 0, 
-             datetime.now() if participant.telegram_username else None)
-        )
-        
-        participant_id = cursor.lastrowid
-        print(f"Participant registered with ID: {participant_id}")
-        
-        # Just save participant registration - NFT minting will happen on frontend
-        conn.commit()
-        
-        print(f"Participant registered successfully - ready for NFT minting")
-        return {
-            "message": "Registration successful - please mint PoA NFT",
-            "participant_id": participant_id,
-            "event_name": event_name,
-            "event_id": event_id,
-            "requires_nft_mint": True
-        }
+                    )
             
+            # Register new participant with transaction
+            await conn.execute("BEGIN IMMEDIATE")
+            
+            try:
+                print(f"[INFO] Registering new participant: {participant.name}")
+                cursor = await conn.execute(
+                    """INSERT INTO participants 
+                       (wallet_address, email, name, team_name, event_id, telegram_username, telegram_verified, telegram_verified_at) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (participant.wallet_address, participant.email, participant.name, participant.team_name, event_id, 
+                     participant.telegram_username, 1 if participant.telegram_username else 0, 
+                     datetime.now() if participant.telegram_username else None)
+                )
+                
+                participant_id = cursor.lastrowid
+                print(f"Participant registered with ID: {participant_id}")
+                
+                await conn.commit()
+                
+                print(f"Participant registered successfully - ready for NFT minting")
+                return {
+                    "message": "Registration successful - please mint PoA NFT",
+                    "participant_id": participant_id,
+                    "event_name": event_name,
+                    "event_id": event_id,
+                    "requires_nft_mint": True
+                }
+            except Exception as e:
+                await conn.rollback()
+                raise e
+                
+        except Exception as e:
+            print(f"Registration error: {e}")
+            raise
     finally:
-        conn.close()
+        await conn.close()
 
 @app.post("/telegram/webhook")
 async def telegram_webhook(update: dict):
