@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ChevronRight, Settings } from 'lucide-react';
 import { Footer } from '@/components/layout/Footer';
+import Orb from '@/components/ui/Orb';
 
 export default function LandingPage() {
   console.log('🏠 LandingPage: Component is rendering');
@@ -12,9 +13,22 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section className="relative overflow-hidden min-h-screen flex items-center justify-center">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background/80 to-background/90"></div>
-        <div className="container mx-auto px-4 relative">
+        
+        {/* Orb Background */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-[800px] h-[800px] opacity-40">
+            <Orb
+              hue={270}
+              hoverIntensity={0.5}
+              rotateOnHover={true}
+              forceHoverState={false}
+            />
+          </div>
+        </div>
+        
+        <div className="container mx-auto px-4 relative z-10 pointer-events-none">
           <div className="max-w-4xl mx-auto text-center">
-            <h1 className="text-7xl md:text-9xl font-bold -mb-6">
+            <h1 className="text-7xl md:text-9xl font-bold -mb-6 fira-code-bold">
               <span className="text-white">0x</span><span className="gradient-text">.Certs</span>
             </h1>
             <div className="flex items-center justify-center gap-3 -mb-6">
@@ -24,7 +38,7 @@ export default function LandingPage() {
             <p className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto">
               The future of hackathon certificates. Secure, verifiable, and powered by Web3 technology.
             </p>
-            <div className="flex justify-center">
+            <div className="flex justify-center pointer-events-auto">
               <Link to="/participant">
                 <Button size="lg" variant="default" className="min-w-[250px]">
                   START MINTING

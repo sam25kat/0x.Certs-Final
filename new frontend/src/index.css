@@ -155,6 +155,61 @@ Inspired by 0x.day aesthetic with black background and #00bf63 accent
       transform: translateY(0);
     }
   }
+
+  /* Modern Fonts for Web3 Branding */
+  .inter-black {
+    font-family: "Inter", sans-serif;
+    font-weight: 900;
+    font-style: normal;
+  }
+
+  .poppins-black {
+    font-family: "Poppins", sans-serif;
+    font-weight: 900;
+    font-style: normal;
+  }
+
+  .jetbrains-mono-bold {
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 800;
+    font-style: normal;
+  }
+
+  .space-mono-bold {
+    font-family: "Space Mono", monospace;
+    font-weight: 700;
+    font-style: normal;
+  }
+
+  .source-code-pro-black {
+    font-family: "Source Code Pro", monospace;
+    font-weight: 900;
+    font-style: normal;
+  }
+
+  .roboto-mono-bold {
+    font-family: "Roboto Mono", monospace;
+    font-weight: 700;
+    font-style: normal;
+  }
+
+  .vt323-retro {
+    font-family: "VT323", monospace;
+    font-weight: 400;
+    font-style: normal;
+  }
+
+  .courier-prime-bold {
+    font-family: "Courier Prime", monospace;
+    font-weight: 700;
+    font-style: normal;
+  }
+
+  .fira-code-bold {
+    font-family: "Fira Code", monospace;
+    font-weight: 700;
+    font-style: normal;
+  }
 }
 
 @layer base {
