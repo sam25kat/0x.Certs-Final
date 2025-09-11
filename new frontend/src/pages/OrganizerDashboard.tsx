@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { api, type Event, type Participant } from '@/lib/api';
+import { API_BASE_URL } from '../lib/api';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '@/config/wagmi';
 import { Plus, Users, Award, Send, Download, BarChart3, Copy, Mail, Trash2, Settings, Shield, Factory, Wallet, FileText, BarChart, Calendar, CalendarIcon } from 'lucide-react';
 import { ProgressDialog } from '@/components/ui/progress-dialog';
@@ -117,7 +118,7 @@ export default function OrganizerDashboard() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch('http://localhost:8000/organizer/login', {
+      const response = await fetch(`${API_BASE_URL}/organizer/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: loginEmail.trim() }),
@@ -157,7 +158,7 @@ export default function OrganizerDashboard() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch('http://localhost:8000/organizer/verify-otp', {
+      const response = await fetch(`${API_BASE_URL}/organizer/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -216,7 +217,7 @@ export default function OrganizerDashboard() {
     if (!session) return;
     
     try {
-      const response = await fetch(`http://localhost:8000/organizer/emails?session_token=${session.sessionToken}`);
+      const response = await fetch(`${API_BASE_URL}/organizer/emails?session_token=${session.sessionToken}`);
       const data = await response.json();
       
       if (response.ok) {
@@ -231,7 +232,7 @@ export default function OrganizerDashboard() {
     if (!newEmail.trim() || !session) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/organizer/add-email?session_token=${session.sessionToken}`, {
+      const response = await fetch(`${API_BASE_URL}/organizer/add-email?session_token=${session.sessionToken}`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -265,7 +266,7 @@ export default function OrganizerDashboard() {
     if (!session) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/organizer/remove-email?session_token=${session.sessionToken}`, {
+      const response = await fetch(`${API_BASE_URL}/organizer/remove-email?session_token=${session.sessionToken}`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -465,7 +466,7 @@ export default function OrganizerDashboard() {
     try {
       setLoadingStates(prev => ({...prev, [`participants-${eventId}`]: true}));
       
-      const response = await fetch(`http://localhost:8000/participants/${eventId}?session_token=${session.sessionToken}&t=${Date.now()}`, {
+      const response = await fetch(`${API_BASE_URL}/participants/${eventId}?session_token=${session.sessionToken}&t=${Date.now()}`, {
         cache: 'no-cache',
         headers: {
           'Cache-Control': 'no-cache'
@@ -610,7 +611,7 @@ export default function OrganizerDashboard() {
       setLoadingStates(prev => ({...prev, [`mint-${eventId}`]: true}));
       
       // Step 1: Prepare - Send selected participant IDs
-      const response = await fetch(`http://localhost:8000/bulk_mint_poa/${eventId}?session_token=${session.sessionToken}`, {
+      const response = await fetch(`${API_BASE_URL}/bulk_mint_poa/${eventId}?session_token=${session.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -740,7 +741,7 @@ export default function OrganizerDashboard() {
       }
 
       // Confirm with backend
-      const confirmResponse = await fetch(`http://localhost:8000/confirm_bulk_mint_poa?session_token=${session?.sessionToken}`, {
+      const confirmResponse = await fetch(`${API_BASE_URL}/confirm_bulk_mint_poa?session_token=${session?.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -835,7 +836,7 @@ export default function OrganizerDashboard() {
         description: "This may take a few moments",
       });
       
-      const response = await fetch(`http://localhost:8000/batch_transfer_poa/${eventId}?session_token=${session.sessionToken}`, {
+      const response = await fetch(`${API_BASE_URL}/batch_transfer_poa/${eventId}?session_token=${session.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -899,7 +900,7 @@ export default function OrganizerDashboard() {
     
     try {
       // Confirm with backend
-      await fetch(`http://localhost:8000/confirm_batch_transfer_poa?session_token=${session?.sessionToken}`, {
+      await fetch(`${API_BASE_URL}/confirm_batch_transfer_poa?session_token=${session?.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1007,7 +1008,7 @@ export default function OrganizerDashboard() {
         }));
       }, 2500);
       
-      const response = await fetch(`http://localhost:8000/bulk_generate_certificates/${eventId}?session_token=${session.sessionToken}`, {
+      const response = await fetch(`${API_BASE_URL}/bulk_generate_certificates/${eventId}?session_token=${session.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -1092,7 +1093,7 @@ export default function OrganizerDashboard() {
     try {
       setLoadingStates(prev => ({ ...prev, [`status-${eventId}`]: true }));
       
-      const response = await fetch(`http://localhost:8000/certificate_status/${eventId}?session_token=${session.sessionToken}`);
+      const response = await fetch(`${API_BASE_URL}/certificate_status/${eventId}?session_token=${session.sessionToken}`);
       const result = await response.json();
       
       if (!response.ok) {
@@ -1130,7 +1131,7 @@ export default function OrganizerDashboard() {
     try {
       setLoadingStates(prev => ({ ...prev, [`toggle-${eventId}`]: true }));
       
-      const response = await fetch(`http://localhost:8000/toggle_event_status/${eventId}?session_token=${session.sessionToken}`, {
+      const response = await fetch(`${API_BASE_URL}/toggle_event_status/${eventId}?session_token=${session.sessionToken}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !currentStatus })

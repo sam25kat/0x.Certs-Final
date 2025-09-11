@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { api, type Event, type Participant } from '@/lib/api';
+import { API_BASE_URL } from '../lib/api';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '@/config/wagmi';
 import { Plus, Users, Award, Send, Download, BarChart3, Copy, Mail, Trash2, Settings, Shield } from 'lucide-react';
 import {
@@ -96,7 +97,7 @@ export default function OrganizerDashboard() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch('http://localhost:8000/organizer/login', {
+      const response = await fetch(`${API_BASE_URL}/organizer/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: loginEmail.trim() }),
@@ -136,7 +137,7 @@ export default function OrganizerDashboard() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch('http://localhost:8000/organizer/verify-otp', {
+      const response = await fetch(`${API_BASE_URL}/organizer/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -195,7 +196,7 @@ export default function OrganizerDashboard() {
     if (!session) return;
     
     try {
-      const response = await fetch(`http://localhost:8000/organizer/emails?session_token=${session.sessionToken}`);
+      const response = await fetch(`${API_BASE_URL}/organizer/emails?session_token=${session.sessionToken}`);
       const data = await response.json();
       
       if (response.ok) {
@@ -210,7 +211,7 @@ export default function OrganizerDashboard() {
     if (!newEmail.trim() || !session) return;
 
     try {
-      const response = await fetch('http://localhost:8000/organizer/add-email', {
+      const response = await fetch(`${API_BASE_URL}/organizer/add-email`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -245,7 +246,7 @@ export default function OrganizerDashboard() {
     if (!session) return;
 
     try {
-      const response = await fetch('http://localhost:8000/organizer/remove-email', {
+      const response = await fetch(`${API_BASE_URL}/organizer/remove-email`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
