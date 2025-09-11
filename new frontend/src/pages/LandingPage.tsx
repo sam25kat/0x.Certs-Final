@@ -26,12 +26,12 @@ export default function LandingPage() {
       <SplashCursor />
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden min-h-screen flex items-center justify-center">
+      <section className="relative min-h-screen flex items-center justify-center">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background/80 to-background/90"></div>
         
         {/* Orb Background */}
         <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div className="w-[250vw] h-[250vw] max-w-[2800px] max-h-[2800px] sm:w-[900px] sm:h-[900px] md:w-[1000px] md:h-[1000px] lg:w-[1100px] lg:h-[1100px] xl:w-[1200px] xl:h-[1200px] opacity-40">
+          <div className="w-[350vw] h-[350vw] max-w-[3500px] max-h-[3500px] sm:w-[900px] sm:h-[900px] md:w-[1000px] md:h-[1000px] lg:w-[1100px] lg:h-[1100px] xl:w-[1200px] xl:h-[1200px] opacity-40">
             <Orb
               hue={152}
               hoverIntensity={0.5}
@@ -48,7 +48,9 @@ export default function LandingPage() {
             </h1>
             <div className="flex items-center justify-center gap-3 -mb-6">
               <span className="text-lg text-muted-foreground">A product by</span>
-              <img src="/logo.png" alt="0x.Day Logo" className="h-48 w-auto" />
+              <a href="https://0x.day/" target="_blank" rel="noopener noreferrer">
+                <img src="/logo.png" alt="0x.Day Logo" className="h-48 w-auto" />
+              </a>
             </div>
             <p className="text-lg md:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
               The future of certificates and PoAs in the digital NFT space is here!<br />
@@ -67,7 +69,7 @@ export default function LandingPage() {
       </section>
 
       {/* Lanyard Split Section */}
-      <section className="py-20 md:py-32">
+      <section className="pt-40 md:pt-60 py-20 md:py-32 pb-32 md:pb-48">
         <div className="container mx-auto px-4">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Left side - Lanyard Component */}
@@ -81,15 +83,15 @@ export default function LandingPage() {
                 Experience the Future of Digital Credentials
               </h2>
               <p className="text-lg text-muted-foreground">
-                Our platform transforms traditional certificates into interactive, verifiable NFTs. 
-                Watch your achievements come to life in 3D space, powered by cutting-edge Web3 technology.
+                Our platform transforms traditional certificates into interactive, verifiable NFT tokens. 
+                Experience your achievements through digital blockchain-based credentials, powered by cutting-edge Web3 technology.
               </p>
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
                   <CheckCircle className="h-5 w-5 text-primary mt-1 flex-shrink-0" />
                   <div>
-                    <h3 className="font-semibold text-white">Immersive Experience</h3>
-                    <p className="text-muted-foreground">Interactive 3D certificates that showcase your achievements</p>
+                    <h3 className="font-semibold text-white">Digital Experience</h3>
+                    <p className="text-muted-foreground">Interactive NFT-based certificates that showcase your achievements</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -113,7 +115,7 @@ export default function LandingPage() {
       </section>
 
       {/* How It Works Section */}
-      <section className="py-20 md:py-32 bg-muted/20">
+      <section className="pt-2 md:pt-4 py-20 md:py-32 bg-muted/20">
         <div className="container mx-auto px-4">
           <div className="max-w-2xl mx-auto text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold mb-4">How It Works</h2>
@@ -556,7 +558,7 @@ export default function LandingPage() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-20 md:py-32">
+      <section className="py-12 md:py-20">
         <div className="container mx-auto px-4">
           <div className="max-w-2xl mx-auto text-center">
             <h2 className="text-3xl md:text-4xl font-bold mb-6">
