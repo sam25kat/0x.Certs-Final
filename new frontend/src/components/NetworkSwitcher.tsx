@@ -35,9 +35,9 @@ export function NetworkSwitcher() {
         method: 'wallet_switchEthereumChain',
         params: [{ chainId: BASE_SEPOLIA_NETWORK.chainId }],
       });
-    } catch (switchError: any) {
+    } catch (switchError: unknown) {
       // If network doesn't exist, add it
-      if (switchError.code === 4902) {
+      if ((switchError as { code?: number }).code === 4902) {
         try {
           await window.ethereum.request({
             method: 'wallet_addEthereumChain',
