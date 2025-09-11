@@ -18,8 +18,8 @@ Inspired by 0x.day aesthetic with black background and #00bf63 accent
     --popover: 0 0% 3%;
     --popover-foreground: 0 0% 98%;
 
-    /* Primary - 0x.day inspired green */
-    --primary: 142 100% 37%;
+    /* Primary - 0x.day inspired green (#0bc270) */
+    --primary: 152 82% 41%;
     --primary-foreground: 0 0% 0%;
 
     /* Secondary - Subtle gray tones */
@@ -29,7 +29,7 @@ Inspired by 0x.day aesthetic with black background and #00bf63 accent
     --muted: 0 0% 6%;
     --muted-foreground: 0 0% 60%;
 
-    --accent: 142 100% 37%;
+    --accent: 152 82% 41%;
     --accent-foreground: 0 0% 0%;
 
     --destructive: 0 84% 60%;
@@ -37,21 +37,21 @@ Inspired by 0x.day aesthetic with black background and #00bf63 accent
 
     --border: 0 0% 12%;
     --input: 0 0% 8%;
-    --ring: 142 100% 37%;
+    --ring: 152 82% 41%;
 
     --radius: 0.75rem;
 
     /* Custom Web3 Design Tokens */
-    --neon-glow: 142 100% 37%;
-    --gradient-primary: linear-gradient(135deg, hsl(142 100% 37%), hsl(142 100% 45%));
+    --neon-glow: 152 82% 41%;
+    --gradient-primary: linear-gradient(135deg, hsl(152 82% 41%), hsl(152 82% 45%));
     --gradient-dark: linear-gradient(135deg, hsl(0 0% 0%), hsl(0 0% 3%));
     --gradient-card: linear-gradient(135deg, hsl(0 0% 3%), hsl(0 0% 5%));
-    --gradient-accent: linear-gradient(135deg, hsl(142 100% 37% / 0.1), hsl(142 100% 37% / 0.05));
+    --gradient-accent: linear-gradient(135deg, hsl(152 82% 41% / 0.1), hsl(152 82% 41% / 0.05));
     
     /* Shadows with neon effect */
-    --shadow-neon: 0 0 20px hsl(142 100% 37% / 0.3);
+    --shadow-neon: 0 0 20px hsl(152 82% 41% / 0.3);
     --shadow-card: 0 8px 32px hsl(0 0% 0% / 0.5);
-    --shadow-glow: 0 0 40px hsl(142 100% 37% / 0.4);
+    --shadow-glow: 0 0 40px hsl(152 82% 41% / 0.4);
     
     /* Transitions */
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -66,7 +66,7 @@ Inspired by 0x.day aesthetic with black background and #00bf63 accent
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    background-image: radial-gradient(circle at 50% 50%, hsl(142 100% 37% / 0.03) 0%, transparent 50%);
+    background-image: radial-gradient(circle at 50% 50%, hsl(152 82% 41% / 0.03) 0%, transparent 50%);
   }
 
   /* Web3 Typography */

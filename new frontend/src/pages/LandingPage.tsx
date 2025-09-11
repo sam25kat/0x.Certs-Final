@@ -1,41 +1,33 @@
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ChevronRight, Settings } from 'lucide-react';
+import { Footer } from '@/components/layout/Footer';
 
 export default function LandingPage() {
   console.log('🏠 LandingPage: Component is rendering');
 
   return (
     <div className="min-h-screen">
-      {/* Organizer Access - Discrete Sidebar */}
-      <div className="fixed top-4 right-4 z-50">
-        <Link to="/organizer">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="opacity-70 hover:opacity-100 transition-opacity"
-            title="Organizer Access"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-        </Link>
-      </div>
 
       {/* Hero Section */}
       <section className="relative overflow-hidden min-h-screen flex items-center justify-center">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background/80 to-background/90"></div>
         <div className="container mx-auto px-4 relative">
           <div className="max-w-4xl mx-auto text-center">
-            <h1 className="text-7xl md:text-9xl font-bold mb-6">
-              <span className="gradient-text">0x.Certs</span>
+            <h1 className="text-7xl md:text-9xl font-bold -mb-6">
+              <span className="text-white">0x</span><span className="gradient-text">.Certs</span>
             </h1>
+            <div className="flex items-center justify-center gap-3 -mb-6">
+              <span className="text-lg text-muted-foreground">A product by</span>
+              <img src="/logo.png" alt="0x.Day Logo" className="h-48 w-auto" />
+            </div>
             <p className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-2xl mx-auto">
               The future of hackathon certificates. Secure, verifiable, and powered by Web3 technology.
             </p>
             <div className="flex justify-center">
               <Link to="/participant">
                 <Button size="lg" variant="default" className="min-w-[250px]">
-                  Join as Participant
+                  START MINTING
                   <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
@@ -103,7 +95,7 @@ export default function LandingPage() {
             <div className="flex justify-center">
               <Link to="/participant">
                 <Button size="lg" variant="default" className="min-w-[250px]">
-                  Get Started Now
+                  MINT YOUR CERTIFICATES
                   <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
@@ -111,6 +103,8 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+      
+      <Footer />
     </div>
   );
 }

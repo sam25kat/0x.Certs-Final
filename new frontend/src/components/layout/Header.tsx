@@ -12,27 +12,13 @@ export const Header = () => {
     <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
       <div className="container mx-auto px-4 py-4 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-          <Hexagon className="h-8 w-8 text-primary" />
-          <span className="text-2xl font-bold gradient-text">0x.Certs</span>
+          <span className="text-2xl font-bold">
+            <span className="text-white">0x</span><span className="gradient-text">.Certs</span>
+          </span>
         </Link>
 
         <nav className="hidden md:flex items-center gap-6">
-          {!isAdmin && (
-            <>
-              <Link to="/participant">
-                <Button variant="ghost" size="sm" className="flex items-center gap-2">
-                  <Shield className="h-4 w-4" />
-                  Participant
-                </Button>
-              </Link>
-              <Link to="/organizer">
-                <Button variant="ghost" size="sm" className="flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  Organizer
-                </Button>
-              </Link>
-            </>
-          )}
+          {/* Navigation items removed for cleaner design */}
         </nav>
 
         <div className="flex items-center gap-4">

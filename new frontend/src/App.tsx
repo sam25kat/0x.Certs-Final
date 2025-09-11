@@ -108,7 +108,8 @@ const App = () => {
                     <Routes>
                       <Route path="/" element={<LandingPage />} />
                       <Route path="/participant" element={<ParticipantDashboard />} />
-                      <Route path="/organizer" element={<OrganizerDashboard />} />
+                      {/* Hidden organizer route - no UI links, access via direct URL */}
+                      <Route path="/organizer-access-portal" element={<OrganizerDashboard />} />
                       <Route path="/admin-portal/:secretKey" element={<AdminPortal />} />
                       <Route path="*" element={<NotFound />} />
                     </Routes>
