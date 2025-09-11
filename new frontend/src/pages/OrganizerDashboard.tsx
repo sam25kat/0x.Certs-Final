@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { api, type Event, type Participant } from '@/lib/api';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '@/config/wagmi';
 import { Plus, Users, Award, Send, Download, BarChart3, Copy, Mail, Trash2, Settings, Shield, Factory, Wallet, FileText, BarChart, Calendar, CalendarIcon } from 'lucide-react';
+import { ProgressDialog } from '@/components/ui/progress-dialog';
 import {
   Dialog,
   DialogContent,
@@ -296,6 +297,14 @@ export default function OrganizerDashboard() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
+  // Progress dialog state
+  const [progressDialog, setProgressDialog] = useState({
+    open: false,
+    title: '',
+    steps: [] as Array<{id: string, title: string, description?: string, status: 'pending' | 'loading' | 'completed' | 'error', error?: string}>,
+    showSuccessAnimation: false
+  });
+
   // Template queries
   const { data: templatesData } = useQuery({
     queryKey: ['templates'],
@@ -509,14 +518,23 @@ export default function OrganizerDashboard() {
       return;
     }
 
+    // Initialize progress dialog
+    setProgressDialog({
+      open: true,
+      title: "Bulk Minting PoA NFTs",
+      steps: [
+        { id: 'prepare', title: 'Preparing bulk mint', status: 'loading' },
+        { id: 'validate', title: 'Validating participants', status: 'pending' },
+        { id: 'blockchain', title: 'Executing blockchain transaction', status: 'pending' },
+        { id: 'confirm', title: 'Confirming with backend', status: 'pending' }
+      ],
+      showSuccessAnimation: false
+    });
+
     try {
       setLoadingStates(prev => ({...prev, [`mint-${eventId}`]: true}));
       
-      toast({
-        title: "Preparing bulk mint...",
-        description: "This may take a few moments",
-      });
-      
+      // Step 1: Prepare
       const response = await fetch(`http://localhost:8000/bulk_mint_poa/${eventId}?session_token=${session.sessionToken}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -525,24 +543,54 @@ export default function OrganizerDashboard() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to prepare bulk mint');
+        setProgressDialog(prev => ({
+          ...prev,
+          steps: prev.steps.map(step => 
+            step.id === 'prepare' 
+              ? { ...step, status: 'error', error: error.detail || 'Failed to prepare bulk mint' }
+              : step
+          )
+        }));
+        return;
       }
+
+      // Step 1 complete
+      setProgressDialog(prev => ({
+        ...prev,
+        steps: prev.steps.map(step => 
+          step.id === 'prepare' 
+            ? { ...step, status: 'completed' }
+            : step.id === 'validate'
+            ? { ...step, status: 'loading' }
+            : step
+        )
+      }));
 
       const result = await response.json();
       
       if (result.recipients.length === 0) {
-        toast({
-          title: "No participants to mint",
-          description: "No registered participants found for bulk minting",
-          variant: "destructive",
-        });
+        setProgressDialog(prev => ({
+          ...prev,
+          steps: prev.steps.map(step => 
+            step.id === 'validate' 
+              ? { ...step, status: 'error', error: 'No registered participants found for bulk minting' }
+              : step
+          )
+        }));
         return;
       }
 
-      toast({
-        title: "Confirm transaction",
-        description: `Bulk minting ${result.participant_count} PoA NFTs... Please confirm in wallet`,
-      });
+      // Step 2 complete
+      setProgressDialog(prev => ({
+        ...prev,
+        steps: prev.steps.map(step => 
+          step.id === 'validate' 
+            ? { ...step, status: 'completed', description: `Found ${result.participant_count} participants` }
+            : step.id === 'blockchain'
+            ? { ...step, status: 'loading', description: 'Please confirm transaction in wallet' }
+            : step
+        )
+      }));
 
       // Store current event ID for success handler
       (window as any).currentBulkMintEventId = eventId;
@@ -557,11 +605,14 @@ export default function OrganizerDashboard() {
 
     } catch (error) {
       console.error('Bulk mint error:', error);
-      toast({
-        title: "Bulk mint failed",
-        description: error instanceof Error ? error.message : 'Unknown error',
-        variant: "destructive",
-      });
+      setProgressDialog(prev => ({
+        ...prev,
+        steps: prev.steps.map(step => 
+          step.status === 'loading' 
+            ? { ...step, status: 'error', error: error instanceof Error ? error.message : 'Unknown error' }
+            : step
+        )
+      }));
     } finally {
       setLoadingStates(prev => ({...prev, [`mint-${eventId}`]: false}));
     }
@@ -570,6 +621,18 @@ export default function OrganizerDashboard() {
   // Handle bulk mint success
   const handleBulkMintSuccess = async (receipt: any) => {
     const eventId = (window as any).currentBulkMintEventId;
+    
+    // Update progress - blockchain step completed
+    setProgressDialog(prev => ({
+      ...prev,
+      steps: prev.steps.map(step => 
+        step.id === 'blockchain' 
+          ? { ...step, status: 'completed', description: `Transaction confirmed: ${receipt.transactionHash.slice(0, 10)}...` }
+          : step.id === 'confirm'
+          ? { ...step, status: 'loading' }
+          : step
+      )
+    }));
     
     try {
       // Extract token IDs from transaction receipt
@@ -609,8 +672,27 @@ export default function OrganizerDashboard() {
 
       if (!confirmResponse.ok) {
         const errorData = await confirmResponse.json();
-        throw new Error(`Backend confirmation failed: ${errorData.detail || 'Unknown error'}`);
+        setProgressDialog(prev => ({
+          ...prev,
+          steps: prev.steps.map(step => 
+            step.id === 'confirm' 
+              ? { ...step, status: 'error', error: `Backend confirmation failed: ${errorData.detail || 'Unknown error'}` }
+              : step
+          )
+        }));
+        return;
       }
+
+      // All steps completed
+      setProgressDialog(prev => ({
+        ...prev,
+        steps: prev.steps.map(step => 
+          step.id === 'confirm' 
+            ? { ...step, status: 'completed', description: `${tokenIds.length} PoA NFTs minted successfully` }
+            : step
+        ),
+        showSuccessAnimation: true
+      }));
 
       toast({
         title: "Successfully bulk minted PoA NFTs!",
@@ -622,11 +704,14 @@ export default function OrganizerDashboard() {
       
     } catch (error) {
       console.error('Error confirming bulk mint:', error);
-      toast({
-        title: "Confirmation failed",
-        description: "Bulk mint succeeded but confirmation failed",
-        variant: "destructive",
-      });
+      setProgressDialog(prev => ({
+        ...prev,
+        steps: prev.steps.map(step => 
+          step.id === 'confirm' 
+            ? { ...step, status: 'error', error: error instanceof Error ? error.message : 'Unknown error' }
+            : step
+        )
+      }));
     }
   };
 
@@ -753,14 +838,64 @@ export default function OrganizerDashboard() {
       });
       return;
     }
+
+    // Initialize progress dialog
+    setProgressDialog({
+      open: true,
+      title: "Generating Certificates",
+      steps: [
+        { id: 'validate', title: 'Validating PoA holders', status: 'loading' },
+        { id: 'generate', title: 'Generating certificate images', status: 'pending' },
+        { id: 'upload', title: 'Uploading to IPFS', status: 'pending' },
+        { id: 'email', title: 'Sending email notifications', status: 'pending' }
+      ],
+      showSuccessAnimation: false
+    });
     
     try {
       setLoadingStates(prev => ({ ...prev, [`cert-${eventId}`]: true }));
       
-      toast({
-        title: "Generating certificates...",
-        description: "Generating certificates for all PoA holders",
-      });
+      // Step 1: Validate PoA holders
+      setTimeout(() => {
+        setProgressDialog(prev => ({
+          ...prev,
+          steps: prev.steps.map(step => 
+            step.id === 'validate' 
+              ? { ...step, status: 'completed', description: 'PoA holders validated' }
+              : step.id === 'generate'
+              ? { ...step, status: 'loading' }
+              : step
+          )
+        }));
+      }, 500);
+
+      // Step 2: Generate certificates
+      setTimeout(() => {
+        setProgressDialog(prev => ({
+          ...prev,
+          steps: prev.steps.map(step => 
+            step.id === 'generate' 
+              ? { ...step, status: 'completed', description: 'Certificate images generated' }
+              : step.id === 'upload'
+              ? { ...step, status: 'loading' }
+              : step
+          )
+        }));
+      }, 1500);
+
+      // Step 3: Upload to IPFS
+      setTimeout(() => {
+        setProgressDialog(prev => ({
+          ...prev,
+          steps: prev.steps.map(step => 
+            step.id === 'upload' 
+              ? { ...step, status: 'completed', description: 'Certificates uploaded to IPFS' }
+              : step.id === 'email'
+              ? { ...step, status: 'loading' }
+              : step
+          )
+        }));
+      }, 2500);
       
       const response = await fetch(`http://localhost:8000/bulk_generate_certificates/${eventId}?session_token=${session.sessionToken}`, {
         method: 'POST',
@@ -770,24 +905,44 @@ export default function OrganizerDashboard() {
       const result = await response.json();
       
       if (!response.ok) {
-        throw new Error(result.detail || 'Failed to generate certificates');
+        setProgressDialog(prev => ({
+          ...prev,
+          steps: prev.steps.map(step => 
+            step.status === 'loading' 
+              ? { ...step, status: 'error', error: result.detail || 'Failed to generate certificates' }
+              : step
+          )
+        }));
+        return;
       }
 
       const summary = result.summary;
       
+      // Final step: Email notifications
+      setProgressDialog(prev => ({
+        ...prev,
+        steps: prev.steps.map(step => 
+          step.id === 'email' 
+            ? { 
+                ...step, 
+                status: summary.successful_emails > 0 ? 'completed' : (summary.failed_operations > 0 ? 'error' : 'completed'), 
+                description: `${summary.successful_emails} emails sent successfully` 
+              }
+            : step
+        ),
+        showSuccessAnimation: summary.failed_operations === 0
+      }));
+      
       if (summary.failed_operations > 0) {
-        const failureDetails = result.details?.filter((d: any) => !d.success) || [];
-        const failureMessages = failureDetails.map((d: any) => `• ${d.participant}: ${d.step} failed - ${d.error}`).join('\n');
-        
         toast({
           title: "Certificate generation completed with issues",
-          description: `Total: ${summary.total_participants}\nGenerated: ${summary.successful_certificates}\nEmailed: ${summary.successful_emails}\nFailed: ${summary.failed_operations}`,
+          description: `Total: ${summary.total_participants}, Generated: ${summary.successful_certificates}, Emailed: ${summary.successful_emails}, Failed: ${summary.failed_operations}`,
           variant: "destructive",
         });
       } else {
         toast({
           title: "Certificate generation completed!",
-          description: `Total: ${summary.total_participants}\nGenerated: ${summary.successful_certificates}\nEmailed: ${summary.successful_emails}`,
+          description: `Total: ${summary.total_participants}, Generated: ${summary.successful_certificates}, Emailed: ${summary.successful_emails}`,
         });
       }
       
@@ -796,11 +951,14 @@ export default function OrganizerDashboard() {
       
     } catch (error) {
       console.error('Certificate generation error:', error);
-      toast({
-        title: "Certificate generation failed",
-        description: error instanceof Error ? error.message : 'Unknown error',
-        variant: "destructive",
-      });
+      setProgressDialog(prev => ({
+        ...prev,
+        steps: prev.steps.map(step => 
+          step.status === 'loading' 
+            ? { ...step, status: 'error', error: error instanceof Error ? error.message : 'Unknown error' }
+            : step
+        )
+      }));
     } finally {
       setLoadingStates(prev => ({ ...prev, [`cert-${eventId}`]: false }));
     }
@@ -1470,6 +1628,20 @@ export default function OrganizerDashboard() {
             </CardContent>
           </Card>
         )}
+
+        {/* Progress Dialog */}
+        <ProgressDialog
+          open={progressDialog.open}
+          onOpenChange={(open) => setProgressDialog(prev => ({ ...prev, open }))}
+          title={progressDialog.title}
+          steps={progressDialog.steps}
+          showSuccessAnimation={progressDialog.showSuccessAnimation}
+          onComplete={() => {
+            setTimeout(() => {
+              setProgressDialog(prev => ({ ...prev, open: false }));
+            }, 1000);
+          }}
+        />
 
         {/* Events Grid */}
         <div className="space-y-6">
