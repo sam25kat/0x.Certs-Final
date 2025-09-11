@@ -103,12 +103,12 @@ class BulkCertificateProcessor:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        cursor.execute("SELECT event_name, event_date FROM events WHERE id = ?", (event_id,))
+        cursor.execute("SELECT event_name, event_date, certificate_template_path FROM events WHERE id = ?", (event_id,))
         event = cursor.fetchone()
         conn.close()
         
         if event:
-            return {"name": event[0], "date": event[1]}
+            return {"name": event[0], "date": event[1], "template": event[2]}
         return None
 
     def mint_certificate_nft(self, wallet_address, event_id, ipfs_hash):
@@ -318,7 +318,8 @@ class BulkCertificateProcessor:
                     event_name=event_details['name'],
                     event_date=event_details['date'],
                     participant_email=participant['email'],
-                    team_name=participant['team_name']
+                    team_name=participant['team_name'],
+                    template_filename=event_details.get('template')
                 )
                 
                 if not cert_result['success']:

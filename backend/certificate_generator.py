@@ -13,7 +13,8 @@ load_dotenv()
 
 class CertificateGenerator:
     def __init__(self):
-        self.template_path = "../certificate_template/Dark Grey and White Elegant Appreciation Certificate.pdf"
+        self.default_template_path = "../certificate_template/default.pdf"
+        self.template_dir = "../certificate_template"
         self.output_dir = "certificates"
         self.pinata_api_key = os.getenv("PINATA_API_KEY")
         self.pinata_secret = os.getenv("PINATA_SECRET_API_KEY")
@@ -49,13 +50,23 @@ class CertificateGenerator:
             # Fallback to original string if anything goes wrong
             return date_string
 
-    def generate_certificate(self, participant_name, event_name, event_date, participant_email, team_name=""):
+    def generate_certificate(self, participant_name, event_name, event_date, participant_email, team_name="", template_filename=None):
         """Generate a personalized certificate"""
         try:
             # Format the date to be more readable
             formatted_date = self.format_date(event_date)
+            
+            # Determine template path
+            if template_filename:
+                template_path = os.path.join(self.template_dir, template_filename)
+                if not os.path.exists(template_path):
+                    print(f"Template {template_filename} not found, using default")
+                    template_path = self.default_template_path
+            else:
+                template_path = self.default_template_path
+            
             # Open the PDF template
-            doc = fitz.open(self.template_path)
+            doc = fitz.open(template_path)
             page = doc[0]  # First page
             
             # Convert PDF page to image

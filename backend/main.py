@@ -369,6 +369,7 @@ class EventCreate(BaseModel):
     event_date: str = None
     sponsors: str = None
     description: str = None
+    certificate_template: str = None  # Template filename
 
 class ParticipantRegister(BaseModel):
     wallet_address: str
@@ -1178,8 +1179,8 @@ async def create_event(event: EventCreate, organizer_id: int = 1):
             event_id = random.randint(1000, 9999)
         
         cursor.execute(
-            "INSERT INTO events (id, event_code, event_name, event_date, sponsors, description, organizer_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (event_id, event_code, event.event_name, event.event_date, event.sponsors, event.description, organizer_id)
+            "INSERT INTO events (id, event_code, event_name, event_date, sponsors, description, organizer_id, certificate_template_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (event_id, event_code, event.event_name, event.event_date, event.sponsors, event.description, organizer_id, event.certificate_template)
         )
         conn.commit()
         
@@ -2612,6 +2613,134 @@ async def toggle_event_status(event_id: int, request: EventStatusUpdate, session
         raise HTTPException(status_code=500, detail=f"Failed to update event status: {str(e)}")
     finally:
         conn.close()
+
+# Template Management Endpoints
+@app.get("/templates")
+async def get_templates():
+    """Get all available certificate templates"""
+    try:
+        template_dir = "../certificate_template"
+        if not os.path.exists(template_dir):
+            os.makedirs(template_dir, exist_ok=True)
+            return {"templates": []}
+        
+        templates = []
+        for filename in os.listdir(template_dir):
+            if filename.lower().endswith('.pdf'):
+                file_path = os.path.join(template_dir, filename)
+                file_size = os.path.getsize(file_path)
+                templates.append({
+                    "filename": filename,
+                    "display_name": filename.replace('.pdf', '').replace('_', ' ').title(),
+                    "file_size": file_size,
+                    "created_at": datetime.fromtimestamp(os.path.getctime(file_path)).isoformat()
+                })
+        
+        return {"templates": templates}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get templates: {str(e)}")
+
+@app.post("/templates/upload")
+async def upload_template(file: UploadFile = File(...), session_token: str = None):
+    """Upload a new certificate template"""
+    
+    # Verify organizer session
+    organizer_email = verify_organizer_session(session_token)
+    if not organizer_email:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    
+    # Validate file type
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+    
+    # Validate file size (max 10MB)
+    max_size = 10 * 1024 * 1024  # 10MB
+    content = await file.read()
+    if len(content) > max_size:
+        raise HTTPException(status_code=400, detail="File size too large. Maximum 10MB allowed")
+    
+    try:
+        template_dir = "../certificate_template"
+        os.makedirs(template_dir, exist_ok=True)
+        
+        # Generate safe filename
+        safe_filename = "".join(c for c in file.filename if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+        if not safe_filename.lower().endswith('.pdf'):
+            safe_filename += '.pdf'
+        
+        file_path = os.path.join(template_dir, safe_filename)
+        
+        # Check if file already exists
+        if os.path.exists(file_path):
+            # Add timestamp to make it unique
+            name, ext = os.path.splitext(safe_filename)
+            timestamp = int(datetime.now().timestamp())
+            safe_filename = f"{name}_{timestamp}{ext}"
+            file_path = os.path.join(template_dir, safe_filename)
+        
+        # Save the file
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        return {
+            "message": "Template uploaded successfully",
+            "filename": safe_filename,
+            "file_size": len(content),
+            "uploaded_by": organizer_email
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload template: {str(e)}")
+
+@app.delete("/templates/{filename}")
+async def delete_template(filename: str, session_token: str = None):
+    """Delete a certificate template"""
+    
+    # Verify organizer session
+    organizer_email = verify_organizer_session(session_token)
+    if not organizer_email:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    
+    try:
+        template_dir = "../certificate_template"
+        file_path = os.path.join(template_dir, filename)
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Template not found")
+        
+        if not filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Invalid file type")
+        
+        # Check if template is being used by any events
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM events 
+            WHERE certificate_template_path = ? AND is_active = TRUE
+        """, (filename,))
+        
+        events_using_template = cursor.fetchone()[0]
+        conn.close()
+        
+        if events_using_template > 0:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot delete template. It is being used by {events_using_template} active event(s)"
+            )
+        
+        os.remove(file_path)
+        
+        return {
+            "message": "Template deleted successfully",
+            "filename": filename,
+            "deleted_by": organizer_email
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete template: {str(e)}")
 
 @app.get("/health")
 async def health_check():

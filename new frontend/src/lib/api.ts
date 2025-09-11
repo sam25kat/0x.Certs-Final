@@ -40,6 +40,13 @@ export interface PlatformStats {
   active_events: number;
 }
 
+export interface CertificateTemplate {
+  filename: string;
+  display_name: string;
+  file_size: number;
+  created_at: string;
+}
+
 // API functions
 export const api = {
   // Events
@@ -50,7 +57,7 @@ export const api = {
     return data.events || [];
   },
 
-  createEvent: async (eventData: { event_name: string; description: string; event_date: string; sponsors: string; organizer_wallet: string }): Promise<{ event_id: number; event_code: string; event_name: string; message: string }> => {
+  createEvent: async (eventData: { event_name: string; description: string; event_date: string; sponsors: string; organizer_wallet: string; certificate_template?: string }): Promise<{ event_id: number; event_code: string; event_name: string; message: string }> => {
     const response = await fetch(`${API_BASE_URL}/create_event`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -174,6 +181,34 @@ export const api = {
       method: 'POST',
     });
     if (!response.ok) throw new Error('Failed to batch transfer PoAs');
+    return response.json();
+  },
+
+  // Template Management
+  getTemplates: async (): Promise<{ templates: CertificateTemplate[] }> => {
+    const response = await fetch(`${API_BASE_URL}/templates`);
+    if (!response.ok) throw new Error('Failed to fetch templates');
+    return response.json();
+  },
+
+  uploadTemplate: async (file: File, sessionToken: string): Promise<{ message: string; filename: string; file_size: number; uploaded_by: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('session_token', sessionToken);
+
+    const response = await fetch(`${API_BASE_URL}/templates/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) throw new Error('Failed to upload template');
+    return response.json();
+  },
+
+  deleteTemplate: async (filename: string, sessionToken: string): Promise<{ message: string; filename: string; deleted_by: string }> => {
+    const response = await fetch(`${API_BASE_URL}/templates/${filename}?session_token=${sessionToken}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete template');
     return response.json();
   },
 };

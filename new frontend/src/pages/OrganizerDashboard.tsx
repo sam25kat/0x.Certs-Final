@@ -66,6 +66,7 @@ export default function OrganizerDashboard() {
     description: '',
     event_date: '',
     sponsors: '',
+    certificate_template: '',
   });
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -289,13 +290,42 @@ export default function OrganizerDashboard() {
 
   const [participants, setParticipants] = useState<{[key: number]: Participant[]}>({});
   const [expandedEvents, setExpandedEvents] = useState<{[key: number]: boolean}>({});
+  
+  // Template management state
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  // Template queries
+  const { data: templatesData } = useQuery({
+    queryKey: ['templates'],
+    queryFn: api.getTemplates,
+  });
+
+  const uploadTemplateMutation = useMutation({
+    mutationFn: ({ file, sessionToken }: { file: File; sessionToken: string }) => 
+      api.uploadTemplate(file, sessionToken),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['templates'] });
+      setSelectedFile(null);
+      toast({
+        title: "Template uploaded successfully!",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to upload template",
+        variant: "destructive",
+      });
+    }
+  });
 
   const createEventMutation = useMutation({
     mutationFn: api.createEvent,
     onSuccess: (event) => {
       queryClient.invalidateQueries({ queryKey: ['events'] });
       setShowCreateEvent(false);
-      setEventForm({ event_name: '', description: '', event_date: '', sponsors: '' });
+      setEventForm({ event_name: '', description: '', event_date: '', sponsors: '', certificate_template: '' });
       toast({
         title: "Event created successfully!",
         description: `Event code: ${event.event_code}`,
@@ -391,8 +421,12 @@ export default function OrganizerDashboard() {
       return;
     }
 
+    // Use default template if no template is selected
+    const templateToSend = eventForm.certificate_template || undefined;
+
     createEventMutation.mutate({
       ...eventForm,
+      certificate_template: templateToSend,
       organizer_wallet: address,
     });
   };
@@ -1121,6 +1155,14 @@ export default function OrganizerDashboard() {
               <Plus className="h-4 w-4 mr-2" />
               Create Event
             </Button>
+            <Button 
+              onClick={() => setShowTemplateManager(true)}
+              variant="outline"
+              size="sm"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Templates
+            </Button>
             <Button
               onClick={handleLogout}
               variant="ghost"
@@ -1179,6 +1221,99 @@ export default function OrganizerDashboard() {
                       )}
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Template Management Dialog */}
+        <Dialog open={showTemplateManager} onOpenChange={setShowTemplateManager}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>Certificate Template Management</DialogTitle>
+              <DialogDescription>
+                Upload and manage certificate templates. Templates will be available when creating events.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-6">
+              {/* Upload new template */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Upload New Template</h3>
+                <div className="flex gap-4 items-end">
+                  <div className="flex-1">
+                    <Label htmlFor="template-file">Select PDF Template</Label>
+                    <Input
+                      id="template-file"
+                      type="file"
+                      accept=".pdf"
+                      onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                      className="mt-1"
+                    />
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Upload PDF files only (max 10MB)
+                    </p>
+                  </div>
+                  <Button 
+                    onClick={() => {
+                      if (selectedFile && session?.sessionToken) {
+                        uploadTemplateMutation.mutate({ 
+                          file: selectedFile, 
+                          sessionToken: session.sessionToken 
+                        });
+                      }
+                    }}
+                    disabled={!selectedFile || uploadTemplateMutation.isPending}
+                    variant="web3"
+                  >
+                    {uploadTemplateMutation.isPending ? 'Uploading...' : 'Upload Template'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Existing templates */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Available Templates</h3>
+                <div className="grid gap-4">
+                  {templatesData?.templates?.length ? (
+                    templatesData.templates.map((template) => (
+                      <div key={template.filename} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex-1">
+                          <h4 className="font-medium">{template.display_name}</h4>
+                          <p className="text-sm text-muted-foreground">
+                            {template.filename} • {(template.file_size / 1024 / 1024).toFixed(2)} MB
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Created: {new Date(template.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Badge variant="secondary">PDF</Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              if (session?.sessionToken) {
+                                // Note: Delete functionality can be added here
+                                toast({
+                                  title: "Delete functionality",
+                                  description: "Template deletion coming soon",
+                                });
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p>No templates uploaded yet</p>
+                      <p className="text-sm">Upload your first PDF template above</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1285,6 +1420,25 @@ export default function OrganizerDashboard() {
                   onChange={(e) => setEventForm(prev => ({ ...prev, sponsors: e.target.value }))}
                   placeholder="Sponsor1, Sponsor2, Sponsor3"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="template">Certificate Template</Label>
+                <Select 
+                  value={eventForm.certificate_template} 
+                  onValueChange={(value) => setEventForm(prev => ({ ...prev, certificate_template: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a template (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templatesData?.templates?.map((template) => (
+                      <SelectItem key={template.filename} value={template.filename}>
+                        {template.display_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
