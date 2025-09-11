@@ -26,6 +26,10 @@ class BulkCertificateProcessor:
         # Initialize Web3
         self.w3 = Web3(Web3.HTTPProvider(self.rpc_url))
         
+        # Nonce management for parallel operations
+        self._nonce_lock = asyncio.Lock()
+        self._current_nonce = None
+        
         # Contract ABI (matches actual deployed contract)
         self.contract_abi = [
             {
@@ -74,6 +78,20 @@ class BulkCertificateProcessor:
             address=self.contract_address,
             abi=self.contract_abi
         )
+
+    async def get_next_nonce(self):
+        """Get the next available nonce for blockchain transactions"""
+        async with self._nonce_lock:
+            account = self.w3.eth.account.from_key(self.private_key)
+            
+            if self._current_nonce is None:
+                # Initialize with current network nonce
+                self._current_nonce = self.w3.eth.get_transaction_count(account.address)
+            
+            nonce = self._current_nonce
+            self._current_nonce += 1
+            print(f"Allocated nonce: {nonce}")
+            return nonce
 
     def get_poa_holders_for_event(self, event_id, participant_ids=None):
         """Get participants who have PoA tokens for a specific event, optionally filtered by participant IDs"""
@@ -127,7 +145,7 @@ class BulkCertificateProcessor:
             return {"name": event[0], "date": event[1], "template": event[2]}
         return None
 
-    def mint_certificate_nft(self, wallet_address, event_id, ipfs_hash):
+    async def mint_certificate_nft(self, wallet_address, event_id, ipfs_hash):
         """Mint a certificate NFT"""
         try:
             # Get account from private key
@@ -141,9 +159,9 @@ class BulkCertificateProcessor:
             balance = self.w3.eth.get_balance(account.address)
             print(f"Account balance: {self.w3.from_wei(balance, 'ether')} ETH")
             
-            # Get transaction details and estimate gas
-            nonce = self.w3.eth.get_transaction_count(account.address)
-            print(f"Nonce: {nonce}")
+            # Get managed nonce for parallel operations
+            nonce = await self.get_next_nonce()
+            print(f"Using managed nonce: {nonce}")
             
             # Use mintCertificateByOwner function only (as requested by user)
             print("Using mintCertificateByOwner function")
@@ -350,8 +368,7 @@ class BulkCertificateProcessor:
                 }
             
             # Mint NFT
-            mint_result = await asyncio.to_thread(
-                self.mint_certificate_nft,
+            mint_result = await self.mint_certificate_nft(
                 participant['wallet_address'],
                 event_id,
                 ipfs_result['metadata_hash']
@@ -429,8 +446,8 @@ class BulkCertificateProcessor:
             # Process participants in parallel with controlled concurrency
             print(f"Processing {len(participants)} participants in parallel...")
             
-            # Use semaphore to limit concurrent operations (prevent RPC overload)
-            semaphore = asyncio.Semaphore(5)  # Max 5 concurrent operations
+            # Use semaphore to limit concurrent operations (prevent RPC overload and nonce conflicts)
+            semaphore = asyncio.Semaphore(3)  # Max 3 concurrent operations for blockchain safety
             
             async def process_with_semaphore(participant):
                 async with semaphore:
