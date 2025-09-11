@@ -167,8 +167,8 @@ class BulkCertificateProcessor:
                 ipfs_hash
             ).build_transaction({
                 'chainId': 84532,  # Base Sepolia testnet
-                'gas': max(gas_estimate * 2, 300000),    # Use 2x gas estimate or minimum 300k
-                'gasPrice': self.w3.to_wei('2', 'gwei'),  # Higher gas price for Base Sepolia
+                'gas': int(gas_estimate * 1.1),  # Only 10% buffer instead of 2x
+                'gasPrice': int(self.w3.eth.gas_price * 1.1),  # Use network gas price + 10%
                 'nonce': nonce,
             })
             
