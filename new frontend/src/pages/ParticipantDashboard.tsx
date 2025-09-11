@@ -986,7 +986,7 @@ export default function ParticipantDashboard() {
                             asChild
                           >
                             <a 
-                              href="https://t.me/+reGkAz3_w6syOWJl"
+                              href="https://t.me/+dirp2IfH0FxlNWRl"
                               target="_blank"
                               rel="noopener noreferrer"
                               className="flex items-center gap-2"

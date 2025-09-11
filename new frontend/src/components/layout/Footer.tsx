@@ -102,7 +102,7 @@ export const Footer = () => {
                 className="rounded-full px-3 py-1 md:px-4 md:py-2 text-xs md:text-sm bg-primary hover:bg-primary/90"
                 asChild
               >
-                <a href="https://t.me/+YcLkK96HOkMzMmY1" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 md:gap-2">
+                <a href="https://t.me/+dirp2IfH0FxlNWRl" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 md:gap-2">
                   <span className="hidden sm:inline">Telegram Community</span>
                   <span className="sm:hidden">Telegram</span>
                   <ExternalLink className="h-3 w-3" />

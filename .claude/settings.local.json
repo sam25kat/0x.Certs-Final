@@ -36,7 +36,9 @@
       "Bash(npx eslint:*)",
       "Bash(npx tsc:*)",
       "WebFetch(domain:reactbits.dev)",
-      "Bash(npm ls:*)"
+      "Bash(npm ls:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []
