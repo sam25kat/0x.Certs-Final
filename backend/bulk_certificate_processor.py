@@ -304,20 +304,15 @@ class BulkCertificateProcessor:
         """Update participant certificate status in database"""
         query = """
             UPDATE participants 
-            SET certificate_status = 'completed',
+            SET certificate_status = 'generated',
                 certificate_token_id = ?,
-                certificate_tx_hash = ?,
-                certificate_path = ?,
-                certificate_ipfs_hash = ?,
-                certificate_metadata_uri = ?
+                certificate_minted_at = CURRENT_TIMESTAMP,
+                certificate_ipfs = ?
             WHERE id = ?
         """
         params = [
-            str(token_id),  # Convert to string for large numbers
-            tx_hash,
-            certificate_path,
+            str(token_id),  # Convert to string for large numbers  
             ipfs_data.get('image_hash'),
-            ipfs_data.get('metadata_url'),
             participant_id
         ]
         

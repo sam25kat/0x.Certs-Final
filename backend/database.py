@@ -121,6 +121,10 @@ async def init_database_tables():
                 certificate_minted_at TIMESTAMP,
                 certificate_transferred_at TIMESTAMP,
                 certificate_ipfs VARCHAR(255),
+                certificate_tx_hash VARCHAR(66),
+                certificate_path VARCHAR(255),
+                certificate_ipfs_hash VARCHAR(255),
+                certificate_metadata_uri VARCHAR(500),
                 UNIQUE(wallet_address, event_id)
             )
             """,
@@ -176,6 +180,10 @@ async def init_database_tables():
                 certificate_minted_at TEXT,
                 certificate_transferred_at TEXT,
                 certificate_ipfs TEXT,
+                certificate_tx_hash TEXT,
+                certificate_path TEXT,
+                certificate_ipfs_hash TEXT,
+                certificate_metadata_uri TEXT,
                 UNIQUE(wallet_address, event_id)
             )
             """,
@@ -207,6 +215,27 @@ async def init_database_tables():
             print(f"Error creating table {i}: {e}")
             print(f"SQL: {sql}")
 
+
+async def migrate_database():
+    """Migrate existing database to add missing columns"""
+    if db_manager.is_postgres:
+        # Add missing columns to PostgreSQL participants table if they don't exist
+        migration_queries = [
+            "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_tx_hash VARCHAR(66)",
+            "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_path VARCHAR(255)",
+            "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_ipfs_hash VARCHAR(255)",
+            "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_metadata_uri VARCHAR(500)"
+        ]
+        
+        for query in migration_queries:
+            try:
+                await db_manager.execute_query(query)
+                print(f"Migration executed: {query}")
+            except Exception as e:
+                print(f"Migration skipped (column likely exists): {e}")
+    else:
+        # For SQLite, we would need to recreate the table, but for now just log
+        print("SQLite migration would require table recreation - skipping for existing tables")
 
 async def ensure_iotopia_event():
     """Ensure IOTOPIA event exists in database"""

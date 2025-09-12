@@ -1068,8 +1068,9 @@ async def startup_event():
     
     # Initialize new database system and ensure IOTOPIA event
     try:
-        from database import init_database_tables, ensure_iotopia_event
+        from database import init_database_tables, migrate_database, ensure_iotopia_event
         await init_database_tables()
+        await migrate_database()
         await ensure_iotopia_event()
         print("Database initialized with persistent PostgreSQL support")
     except Exception as e:
