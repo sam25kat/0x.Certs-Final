@@ -1152,38 +1152,52 @@ async def verify_otp(request: OrganizerVerifyOTP):
     email = request.email.lower().strip()
     otp_code = request.otp_code.strip()
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
         # Find valid OTP session
-        cursor.execute("""
-            SELECT id FROM organizer_otp_sessions
-            WHERE email = ? AND otp_code = ? AND is_used = FALSE
-            AND datetime('now') < datetime(expires_at)
-        """, (email, otp_code))
+        if db_manager.is_postgres:
+            check_sql = """
+                SELECT id FROM organizer_otp_sessions
+                WHERE email = $1 AND otp_code = $2 AND is_used = FALSE
+                AND CURRENT_TIMESTAMP < expires_at
+            """
+            params = [email, otp_code]
+        else:
+            check_sql = """
+                SELECT id FROM organizer_otp_sessions
+                WHERE email = ? AND otp_code = ? AND is_used = 0
+                AND datetime('now') < datetime(expires_at)
+            """
+            params = [email, otp_code]
         
-        session = cursor.fetchone()
+        result = await db_manager.execute_query(check_sql, params, fetch=True)
         
-        if not session:
+        if not result:
             raise HTTPException(status_code=400, detail="Invalid or expired OTP code")
         
-        session_id = session[0]
+        session_id = result[0]['id'] if isinstance(result[0], dict) else result[0][0]
         
         # Generate session token
         session_token = generate_session_token()
         
         # Mark OTP as used and save session token
-        cursor.execute("""
-            UPDATE organizer_otp_sessions 
-            SET is_used = TRUE, session_token = ?, verified_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (session_token, session_id))
+        if db_manager.is_postgres:
+            update_sql = """
+                UPDATE organizer_otp_sessions 
+                SET is_used = TRUE, session_token = $1
+                WHERE id = $2
+            """
+        else:
+            update_sql = """
+                UPDATE organizer_otp_sessions 
+                SET is_used = 1, session_token = ?
+                WHERE id = ?
+            """
         
-        conn.commit()
+        await db_manager.execute_query(update_sql, [session_token, session_id])
         
-        # Check if this is a root organizer
-        is_root = is_root_email(email)
+        # Check if this is a root organizer (for now, all root emails can login)
+        root_emails = ["sameer@0x.day", "shivani@0x.day", "saijadhav@0x.day", "naresh@0x.day"]
+        is_root = email in root_emails
         
         return {
             "message": "Login successful",
@@ -1192,8 +1206,11 @@ async def verify_otp(request: OrganizerVerifyOTP):
             "is_root": is_root
         }
         
-    finally:
-        conn.close()
+    except Exception as e:
+        print(f"OTP verification error: {e}")
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=500, detail=f"OTP verification failed: {str(e)}")
 
 @app.post("/organizer/add-email")
 async def add_organizer_email(request: OrganizerAddEmail, session_token: str = None):
