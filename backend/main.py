@@ -1063,13 +1063,14 @@ async def startup_event():
     # Initialize database connection pool
     db_pool = DatabasePool(DB_PATH, max_connections=20)
     
-    # Initialize database schema (sync)
-    init_db()
+    # Initialize database schema (sync) - disabled for new migration system
+    # init_db()
     
     # Initialize new database system and ensure IOTOPIA event
     try:
-        from database import init_database_tables, ensure_iotopia_event
+        from database import init_database_tables, ensure_iotopia_event, migrate_participants_table
         await init_database_tables()
+        await migrate_participants_table()
         await ensure_iotopia_event()
         print("Database initialized with persistent PostgreSQL support")
     except Exception as e:
@@ -1462,22 +1463,42 @@ async def register_participant(participant: ParticipantRegister):
                     }
                 )
         
-        # Register new participant
+        # Register new participant 
         print(f"[INFO] Registering new participant: {participant.name}")
-        register_sql, register_params = convert_sql_for_postgres(
-            """INSERT INTO participants 
-               (wallet_address, event_id, name, email, team_name, telegram_username, registration_date, poa_status, certificate_status) 
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            [participant.wallet_address, event_id, participant.name, participant.email, participant.team_name, 
-             participant.telegram_username, datetime.now() if db_manager.is_postgres else datetime.now().isoformat(), 'not_minted', 'not_generated']
-        )
-        
-        participant_id = await db_manager.execute_query(register_sql, register_params)
-        print(f"Participant registered successfully with ID: {participant_id}")
+        try:
+            register_sql, register_params = convert_sql_for_postgres(
+                """INSERT INTO participants 
+                   (wallet_address, event_id, name, email, team_name, telegram_username, registration_date, poa_status, certificate_status) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [participant.wallet_address, event_id, participant.name, participant.email, participant.team_name, 
+                 participant.telegram_username, datetime.now() if db_manager.is_postgres else datetime.now().isoformat(), 'not_minted', 'not_generated']
+            )
+            
+            result = await db_manager.execute_query(register_sql, register_params)
+            print(f"Participant registered successfully")
+        except Exception as e:
+            if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+                # Check if already registered for this specific event
+                check_sql, check_params = convert_sql_for_postgres(
+                    "SELECT name FROM participants WHERE wallet_address = ? AND event_id = ?",
+                    [participant.wallet_address, event_id]
+                )
+                existing = await db_manager.execute_query(check_sql, check_params, fetch=True)
+                if existing:
+                    existing_name = existing[0]['name'] if isinstance(existing[0], dict) else existing[0][0]
+                    return {
+                        "message": f"Wallet already registered for this event as '{existing_name}'",
+                        "event_name": event_name,
+                        "event_id": event_id,
+                        "already_registered": True
+                    }
+            # Re-raise other errors
+            print(f"Registration error: {e}")
+            raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
         
         return {
             "message": "Registration successful - please mint PoA NFT",
-            "participant_id": participant_id or "registered",
+            "participant_id": "registered",
             "event_name": event_name,
             "event_id": event_id,
             "requires_nft_mint": True
