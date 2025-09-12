@@ -27,12 +27,37 @@ from dotenv import load_dotenv
 from web3 import Web3
 from PIL import Image, ImageDraw, ImageFont
 from bulk_certificate_processor import BulkCertificateProcessor
+from database import db_manager
 
 load_dotenv()
 
 # Global database pool
 db_pool = None
 email_queue = asyncio.Queue()
+
+# Helper function to convert SQL queries for PostgreSQL
+def convert_sql_for_postgres(sql_query, params=None):
+    """Convert SQLite SQL syntax to PostgreSQL"""
+    if not db_manager.is_postgres:
+        return sql_query, params
+    
+    # Convert ? placeholders to $1, $2, etc.
+    param_count = 1
+    converted_sql = ""
+    i = 0
+    while i < len(sql_query):
+        if sql_query[i] == '?':
+            converted_sql += f"${param_count}"
+            param_count += 1
+        else:
+            converted_sql += sql_query[i]
+        i += 1
+    
+    # Convert SQLite specific syntax to PostgreSQL
+    converted_sql = converted_sql.replace("TRUE", "true").replace("FALSE", "false")
+    converted_sql = converted_sql.replace("AUTOINCREMENT", "")
+    
+    return converted_sql, params
 
 # Simplified database connection - no pooling to avoid threading issues
 class DatabasePool:
@@ -1342,106 +1367,86 @@ async def register_participant(participant: ParticipantRegister):
     """Register a participant and mint PoA NFT"""
     print(f"Registration attempt: {participant.wallet_address} for event code: {participant.event_code}")
     
-    conn = await db_pool.get_connection()
     try:
-        try:
-            # Enable WAL mode for better concurrency
-            await conn.execute("PRAGMA journal_mode=WAL")
-            await conn.execute("PRAGMA synchronous=NORMAL")
-            await conn.execute("PRAGMA cache_size=10000")
-            await conn.execute("PRAGMA temp_store=memory")
+        # Validate event code
+        event_sql, event_params = convert_sql_for_postgres(
+            "SELECT id, event_name FROM events WHERE event_code = ? AND is_active = ?",
+            [participant.event_code, 1 if not db_manager.is_postgres else True]
+        )
+        event_result = await db_manager.execute_query(event_sql, event_params, fetch=True)
+        
+        if not event_result:
+            print(f"Invalid event code: {participant.event_code}")
+            raise HTTPException(status_code=404, detail=f"Invalid event code: {participant.event_code}")
+        
+        event = event_result[0]
+        event_id, event_name = event[0], event[1]
+        print(f"Found event: {event_name} (ID: {event_id})")
+        
+        # Check if this wallet address is already used for this event
+        existing_sql, existing_params = convert_sql_for_postgres(
+            "SELECT wallet_address, name, email, poa_status, certificate_status FROM participants WHERE wallet_address = ? AND event_id = ?",
+            [participant.wallet_address, event_id]
+        )
+        existing_result = await db_manager.execute_query(existing_sql, existing_params, fetch=True)
+        
+        if existing_result:
+            existing = existing_result[0]
+            existing_name, existing_email = existing[1], existing[2]
+            poa_status, certificate_status = existing[3], existing[4]
             
-            # Validate event code
-            async with conn.execute(
-                "SELECT id, event_name FROM events WHERE event_code = ? AND is_active = TRUE",
-                (participant.event_code,)
-            ) as cursor:
-                event = await cursor.fetchone()
-            
-            if not event:
-                print(f"Invalid event code: {participant.event_code}")
-                raise HTTPException(status_code=404, detail=f"Invalid event code: {participant.event_code}")
-            
-            event_id, event_name = event
-            print(f"Found event: {event_name} (ID: {event_id})")
-            
-            # Check if this wallet address is already used for this event
-            async with conn.execute(
-                "SELECT id, name, email, poa_minted, certificate_minted FROM participants WHERE wallet_address = ? AND event_id = ?",
-                (participant.wallet_address, event_id)
-            ) as cursor:
-                existing = await cursor.fetchone()
-            
-            if existing:
-                participant_id, existing_name, existing_email, poa_minted, certificate_minted = existing
+            # Check if it's the same person (same name and email) trying to register again
+            if existing_name.lower() == participant.name.lower() and existing_email.lower() == participant.email.lower():
+                print(f"[ERROR] Same user already registered: {participant.wallet_address}")
                 
-                # Check if it's the same person (same name and email) trying to register again
-                if existing_name.lower() == participant.name.lower() and existing_email.lower() == participant.email.lower():
-                    print(f"[ERROR] Same user already registered: {participant.wallet_address}")
-                    
-                    # Provide specific error message based on their completion status
-                    if certificate_minted:
-                        error_msg = f"You have already completed the full process for '{event_name}' including receiving your certificate NFT. Each participant can only register once per event."
-                    elif poa_minted:
-                        error_msg = f"You have already registered and received your PoA NFT for '{event_name}'. Each participant can only register once per event."
-                    else:
-                        error_msg = f"Already registered for '{event_name}' with this wallet address. Each participant can only register once per event."
-                    
-                    raise HTTPException(
-                        status_code=400,
-                        detail=error_msg
-                    )
+                # Provide specific error message based on their completion status
+                if certificate_status == 'minted':
+                    error_msg = f"You have already completed the full process for '{event_name}' including receiving your certificate NFT. Each participant can only register once per event."
+                elif poa_status == 'minted':
+                    error_msg = f"You have already registered and received your PoA NFT for '{event_name}'. Each participant can only register once per event."
                 else:
-                    # Different person trying to use the same wallet address
-                    print(f"[ERROR] Wallet address already in use: {participant.wallet_address} by {existing_name} ({existing_email})")
-                    raise HTTPException(
-                        status_code=400, 
-                        detail={
-                            "error": "WALLET_ADDRESS_IN_USE",
-                            "message": f"This wallet address is already registered for this event by another participant: {existing_name} ({existing_email}). Each participant must use a unique wallet address.",
-                            "existing_participant": {
-                                "name": existing_name,
-                                "email": existing_email
-                            }
+                    error_msg = f"Already registered for '{event_name}' with this wallet address. Each participant can only register once per event."
+                
+                raise HTTPException(status_code=400, detail=error_msg)
+            else:
+                # Different person trying to use the same wallet address
+                print(f"[ERROR] Wallet address already in use: {participant.wallet_address} by {existing_name} ({existing_email})")
+                raise HTTPException(
+                    status_code=400, 
+                    detail={
+                        "error": "WALLET_ADDRESS_IN_USE",
+                        "message": f"This wallet address is already registered for this event by another participant: {existing_name} ({existing_email}). Each participant must use a unique wallet address.",
+                        "existing_participant": {
+                            "name": existing_name,
+                            "email": existing_email
                         }
-                    )
-            
-            # Register new participant with transaction
-            await conn.execute("BEGIN IMMEDIATE")
-            
-            try:
-                print(f"[INFO] Registering new participant: {participant.name}")
-                cursor = await conn.execute(
-                    """INSERT INTO participants 
-                       (wallet_address, email, name, team_name, event_id, telegram_username, telegram_verified, telegram_verified_at) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (participant.wallet_address, participant.email, participant.name, participant.team_name, event_id, 
-                     participant.telegram_username, 1 if participant.telegram_username else 0, 
-                     datetime.now() if participant.telegram_username else None)
+                    }
                 )
-                
-                participant_id = cursor.lastrowid
-                print(f"Participant registered with ID: {participant_id}")
-                
-                await conn.commit()
-                
-                print(f"Participant registered successfully - ready for NFT minting")
-                return {
-                    "message": "Registration successful - please mint PoA NFT",
-                    "participant_id": participant_id,
-                    "event_name": event_name,
-                    "event_id": event_id,
-                    "requires_nft_mint": True
-                }
-            except Exception as e:
-                await conn.rollback()
-                raise e
-                
-        except Exception as e:
-            print(f"Registration error: {e}")
-            raise
-    finally:
-        await conn.close()
+        
+        # Register new participant
+        print(f"[INFO] Registering new participant: {participant.name}")
+        register_sql, register_params = convert_sql_for_postgres(
+            """INSERT INTO participants 
+               (wallet_address, event_id, name, email, team_name, telegram_username, registration_date, poa_status, certificate_status) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [participant.wallet_address, event_id, participant.name, participant.email, participant.team_name, 
+             participant.telegram_username, datetime.now().isoformat(), 'not_minted', 'not_generated']
+        )
+        
+        participant_id = await db_manager.execute_query(register_sql, register_params)
+        print(f"Participant registered successfully with ID: {participant_id}")
+        
+        return {
+            "message": "Registration successful - please mint PoA NFT",
+            "participant_id": participant_id or "registered",
+            "event_name": event_name,
+            "event_id": event_id,
+            "requires_nft_mint": True
+        }
+        
+    except Exception as e:
+        print(f"Registration error: {e}")
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
 @app.post("/telegram/webhook")
 async def telegram_webhook(update: dict):
@@ -2335,32 +2340,48 @@ async def send_emails(event_id: int):
 @app.get("/events")
 async def get_events():
     """Get all events"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
-        cursor.execute(
+        events_sql, events_params = convert_sql_for_postgres(
             """SELECT id, event_code, event_name, event_date, sponsors, description, created_at, is_active 
-               FROM events ORDER BY created_at DESC"""
+               FROM events ORDER BY created_at DESC""",
+            []
         )
         
+        db_events = await db_manager.execute_query(events_sql, events_params, fetch=True)
+        
         events = []
-        for row in cursor.fetchall():
-            events.append({
-                "id": row[0],
-                "event_code": row[1],
-                "event_name": row[2],
-                "event_date": row[3],
-                "sponsors": row[4],
-                "description": row[5],
-                "created_at": row[6],
-                "is_active": row[7]
-            })
+        if db_events:
+            for row in db_events:
+                # Handle both PostgreSQL Record and SQLite tuple formats
+                if hasattr(row, '__getitem__'):
+                    events.append({
+                        "id": row[0],
+                        "event_code": row[1],
+                        "event_name": row[2],
+                        "event_date": row[3],
+                        "sponsors": row[4],
+                        "description": row[5],
+                        "created_at": row[6],
+                        "is_active": row[7]
+                    })
+                else:
+                    # Handle PostgreSQL Record object
+                    events.append({
+                        "id": getattr(row, 'id', row[0]),
+                        "event_code": getattr(row, 'event_code', row[1]),
+                        "event_name": getattr(row, 'event_name', row[2]),
+                        "event_date": getattr(row, 'event_date', row[3]),
+                        "sponsors": getattr(row, 'sponsors', row[4]),
+                        "description": getattr(row, 'description', row[5]),
+                        "created_at": getattr(row, 'created_at', row[6]),
+                        "is_active": getattr(row, 'is_active', row[7])
+                    })
         
         return {"events": events}
         
-    finally:
-        conn.close()
+    except Exception as e:
+        print(f"Error getting events: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching events: {str(e)}")
 
 @app.get("/participants/{event_id}")
 async def get_participants(event_id: int):
@@ -2368,50 +2389,75 @@ async def get_participants(event_id: int):
     print(f"Getting participants for event ID: {event_id}")
     
     try:
-        # Start with all database participants (including those who are just registered)
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            """SELECT id, wallet_address, name, email, team_name, poa_status, poa_token_id, 
+        # Get all database participants using new db_manager
+        participants_sql, participants_params = convert_sql_for_postgres(
+            """SELECT wallet_address, name, email, team_name, poa_status, poa_token_id, 
                       poa_minted_at, poa_transferred_at, certificate_status, certificate_token_id,
-                      certificate_minted_at, certificate_transferred_at, certificate_ipfs_hash
+                      certificate_minted_at, certificate_transferred_at, certificate_ipfs
                FROM participants WHERE event_id = ?""",
-            (event_id,)
+            [event_id]
         )
-        db_participants = cursor.fetchall()
-        conn.close()
+        db_participants = await db_manager.execute_query(participants_sql, participants_params, fetch=True)
         
-        print(f"Found {len(db_participants)} participants in database")
+        print(f"Found {len(db_participants) if db_participants else 0} participants in database")
         
         # Build participant list directly from database (no blockchain enrichment needed)
         participants = []
         
-        for db_participant in db_participants:
-            participant_id = db_participant[0]
-            wallet_address = db_participant[1]
-            
-            participant = {
-                "id": participant_id,
-                "wallet_address": wallet_address,
-                "event_id": event_id,
-                "name": db_participant[2] or 'Unknown',
-                "email": db_participant[3] or 'Unknown',
-                "team_name": db_participant[4],
-                "poa_status": db_participant[5] or 'registered',
-                "poa_token_id": db_participant[6],
-                "poa_minted_at": db_participant[7],
-                "poa_transferred_at": db_participant[8],
-                "poa_minted": db_participant[6] is not None,  # True if token ID exists
-                "certificate_status": db_participant[9] or 'not_eligible',
-                "certificate_token_id": db_participant[10],
-                "certificate_minted_at": db_participant[11],
-                "certificate_transferred_at": db_participant[12],
-                "certificate_minted": db_participant[10] is not None,  # True if token ID exists
-                "certificate_ipfs": db_participant[13]
-            }
-            
-            participants.append(participant)
+        if db_participants:
+            for i, db_participant in enumerate(db_participants):
+                # Handle both PostgreSQL Record and SQLite tuple formats
+                if hasattr(db_participant, '__getitem__'):
+                    wallet_address = db_participant[0]
+                    name = db_participant[1]
+                    email = db_participant[2]
+                    team_name = db_participant[3]
+                    poa_status = db_participant[4]
+                    poa_token_id = db_participant[5]
+                    poa_minted_at = db_participant[6]
+                    poa_transferred_at = db_participant[7]
+                    certificate_status = db_participant[8]
+                    certificate_token_id = db_participant[9]
+                    certificate_minted_at = db_participant[10]
+                    certificate_transferred_at = db_participant[11]
+                    certificate_ipfs = db_participant[12] if len(db_participant) > 12 else None
+                else:
+                    # Handle Record object from PostgreSQL
+                    wallet_address = getattr(db_participant, 'wallet_address', db_participant[0])
+                    name = getattr(db_participant, 'name', db_participant[1])
+                    email = getattr(db_participant, 'email', db_participant[2])
+                    team_name = getattr(db_participant, 'team_name', db_participant[3])
+                    poa_status = getattr(db_participant, 'poa_status', db_participant[4])
+                    poa_token_id = getattr(db_participant, 'poa_token_id', db_participant[5])
+                    poa_minted_at = getattr(db_participant, 'poa_minted_at', db_participant[6])
+                    poa_transferred_at = getattr(db_participant, 'poa_transferred_at', db_participant[7])
+                    certificate_status = getattr(db_participant, 'certificate_status', db_participant[8])
+                    certificate_token_id = getattr(db_participant, 'certificate_token_id', db_participant[9])
+                    certificate_minted_at = getattr(db_participant, 'certificate_minted_at', db_participant[10])
+                    certificate_transferred_at = getattr(db_participant, 'certificate_transferred_at', db_participant[11])
+                    certificate_ipfs = getattr(db_participant, 'certificate_ipfs', None)
+                
+                participant = {
+                    "id": i + 1,  # Use index as ID since we don't have participant ID
+                    "wallet_address": wallet_address,
+                    "event_id": event_id,
+                    "name": name or 'Unknown',
+                    "email": email or 'Unknown',
+                    "team_name": team_name,
+                    "poa_status": poa_status or 'not_minted',
+                    "poa_token_id": poa_token_id,
+                    "poa_minted_at": poa_minted_at,
+                    "poa_transferred_at": poa_transferred_at,
+                    "poa_minted": poa_token_id is not None,  # True if token ID exists
+                    "certificate_status": certificate_status or 'not_generated',
+                    "certificate_token_id": certificate_token_id,
+                    "certificate_minted_at": certificate_minted_at,
+                    "certificate_transferred_at": certificate_transferred_at,
+                    "certificate_minted": certificate_token_id is not None,  # True if token ID exists
+                    "certificate_ipfs": certificate_ipfs
+                }
+                
+                participants.append(participant)
         
         print(f"Returning {len(participants)} participants from database")
         return {"participants": participants}
