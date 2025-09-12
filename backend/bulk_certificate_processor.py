@@ -304,7 +304,7 @@ class BulkCertificateProcessor:
         """Update participant certificate status in database"""
         query = """
             UPDATE participants 
-            SET certificate_status = 'generated',
+            SET certificate_status = 'transferred',
                 certificate_token_id = ?,
                 certificate_minted_at = CURRENT_TIMESTAMP,
                 certificate_ipfs = ?
@@ -317,7 +317,15 @@ class BulkCertificateProcessor:
         ]
         
         converted_query, converted_params = convert_sql_for_postgres(query, params)
-        await db_manager.execute_query(converted_query, converted_params)
+        print(f"Updating participant {participant_id} certificate status to 'transferred' with token {token_id}")
+        result = await db_manager.execute_query(converted_query, converted_params)
+        print(f"Database update result: {result}")
+        
+        # Verify the update worked
+        verify_query = "SELECT certificate_status, certificate_token_id FROM participants WHERE id = ?"
+        converted_verify_query, verify_params = convert_sql_for_postgres(verify_query, [participant_id])
+        verification = await db_manager.execute_query(converted_verify_query, verify_params, fetch=True)
+        print(f"Verification - participant {participant_id} status: {verification}")
     
     async def process_single_participant(self, participant, event_details, event_id):
         """Process a single participant certificate in parallel"""
