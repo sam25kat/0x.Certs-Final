@@ -514,7 +514,13 @@ def generate_session_token() -> str:
 async def is_organizer_email(email: str) -> bool:
     """Check if email is in organizer list"""
     try:
-        sql_query = "SELECT email FROM organizers WHERE email = ?"
+        if db_manager.is_postgres:
+            # PostgreSQL uses 'organizers' table
+            sql_query = "SELECT email FROM organizers WHERE email = ?"
+        else:
+            # SQLite uses 'organizer_emails' table
+            sql_query = "SELECT email FROM organizer_emails WHERE email = ? AND is_active = TRUE"
+        
         converted_sql, params = convert_sql_for_postgres(sql_query, [email])
         result = await db_manager.execute_query(converted_sql, params, fetch=True)
         return len(result) > 0 if result else False
@@ -1331,10 +1337,24 @@ async def create_event(event: EventCreate, organizer_id: int = 1):
                 break
             event_id = random.randint(1000, 9999)
         
+        # Convert date string to proper date object for PostgreSQL
+        if isinstance(event.event_date, str):
+            try:
+                # Parse date string (supports YYYY-MM-DD format)
+                event_date = datetime.strptime(event.event_date, '%Y-%m-%d').date()
+            except ValueError:
+                # If parsing fails, try datetime format
+                try:
+                    event_date = datetime.fromisoformat(event.event_date).date()
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        else:
+            event_date = event.event_date
+        
         # Insert event into database
         insert_sql, insert_params = convert_sql_for_postgres(
             "INSERT INTO events (id, event_code, event_name, event_date, sponsors, description, created_at, is_active, certificate_template) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [event_id, event_code, event.event_name, event.event_date, event.sponsors, event.description, datetime.now().isoformat(), 1, event.certificate_template or 'default']
+            [event_id, event_code, event.event_name, event_date, event.sponsors, event.description, datetime.now().isoformat(), 1, event.certificate_template or 'default']
         )
         await db_manager.execute_query(insert_sql, insert_params)
         
@@ -1794,39 +1814,39 @@ async def bulk_mint_poa(event_id: int, request: dict):
     if not organizer_wallet:
         raise HTTPException(status_code=400, detail="Organizer wallet address required")
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
         # Get participants based on selection
         if participant_ids:
             # Get specific selected participants
-            placeholders = ','.join('?' for _ in participant_ids)
-            cursor.execute(
-                f"SELECT wallet_address, name FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'registered'",
-                [event_id] + participant_ids
-            )
+            placeholders = ','.join('$' + str(i) for i in range(2, len(participant_ids) + 2))
+            participants_sql = f"SELECT wallet_address, name FROM participants WHERE event_id = $1 AND id IN ({placeholders}) AND poa_status = 'registered'"
+            participants_params = [event_id] + participant_ids
             print(f"[DEBUG] BULK MINT DEBUG - Querying selected participants: {participant_ids}")
         else:
             # Get all registered participants for this event (fallback)
-            cursor.execute(
-                "SELECT wallet_address, name FROM participants WHERE event_id = ? AND poa_status = 'registered'",
-                (event_id,)
-            )
+            participants_sql = "SELECT wallet_address, name FROM participants WHERE event_id = $1 AND poa_status = 'registered'"
+            participants_params = [event_id]
             print(f"[DEBUG] BULK MINT DEBUG - Querying all participants for event {event_id}")
         
-        participants = cursor.fetchall()
+        converted_participants_sql, converted_params = convert_sql_for_postgres(participants_sql, participants_params)
+        participants_result = await db_manager.execute_query(converted_participants_sql, converted_params, fetch=True)
         
-        if not participants:
+        if not participants_result:
             raise HTTPException(status_code=404, detail="No registered participants found")
         
+        # Convert result format
+        participants = [(p['wallet_address'] if isinstance(p, dict) else p[0], 
+                        p['name'] if isinstance(p, dict) else p[1]) for p in participants_result]
+        
         # Get event name for NFT metadata
-        cursor.execute("SELECT event_name FROM events WHERE id = ?", (event_id,))
-        event_result = cursor.fetchone()
+        event_sql = "SELECT event_name FROM events WHERE id = ?"
+        converted_event_sql, event_params = convert_sql_for_postgres(event_sql, [event_id])
+        event_result = await db_manager.execute_query(converted_event_sql, event_params, fetch=True)
+        
         if not event_result:
             raise HTTPException(status_code=404, detail="Event not found")
         
-        event_name = event_result[0]
+        event_name = event_result[0]['event_name'] if isinstance(event_result[0], dict) else event_result[0][0]
         
         # For bulk mint, mint all NFTs to the organizer first
         # They will be transferred to participants later via batch transfer
@@ -1864,8 +1884,9 @@ async def bulk_mint_poa(event_id: int, request: dict):
             "metadata_url": f"https://gateway.pinata.cloud/ipfs/{ipfs_hash}"
         }
         
-    finally:
-        conn.close()
+    except Exception as e:
+        print(f"Error in bulk_mint_poa: {e}")
+        raise HTTPException(status_code=500, detail=f"Bulk mint preparation failed: {str(e)}")
 
 @app.post("/confirm_bulk_mint_poa")
 async def confirm_bulk_mint_poa(request: dict):
@@ -1878,36 +1899,32 @@ async def confirm_bulk_mint_poa(request: dict):
     if not all([event_id, tx_hash]):
         raise HTTPException(status_code=400, detail="Missing required fields")
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
         # Get participants based on selection
         if participant_ids:
             # Get specific selected participants that were minted
-            placeholders = ','.join('?' for _ in participant_ids)
-            cursor.execute(
-                f"SELECT id, wallet_address FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'registered' ORDER BY id",
-                [event_id] + participant_ids
-            )
+            placeholders = ','.join('$' + str(i) for i in range(2, len(participant_ids) + 2))
+            participants_sql = f"SELECT id, wallet_address FROM participants WHERE event_id = $1 AND id IN ({placeholders}) AND poa_status = 'registered' ORDER BY id"
+            participants_params = [event_id] + participant_ids
         else:
             # Fallback to all registered participants for this event
-            cursor.execute(
-                "SELECT id, wallet_address FROM participants WHERE event_id = ? AND poa_status = 'registered' ORDER BY id",
-                (event_id,)
-            )
-        participants = cursor.fetchall()
+            participants_sql = "SELECT id, wallet_address FROM participants WHERE event_id = $1 AND poa_status = 'registered' ORDER BY id"
+            participants_params = [event_id]
+        
+        converted_participants_sql, converted_params = convert_sql_for_postgres(participants_sql, participants_params)
+        participants_result = await db_manager.execute_query(converted_participants_sql, converted_params, fetch=True)
+        
+        # Convert result format
+        participants = [(p['id'] if isinstance(p, dict) else p[0], 
+                        p['wallet_address'] if isinstance(p, dict) else p[1]) for p in participants_result]
         
         # Update each participant's status to minted
         for i, (participant_id, wallet_address) in enumerate(participants):
             token_id = token_ids[i] if i < len(token_ids) else None
             
-            cursor.execute(
-                "UPDATE participants SET poa_status = 'minted', poa_token_id = ?, poa_minted_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (token_id, participant_id)
-            )
-        
-        conn.commit()
+            update_sql = "UPDATE participants SET poa_status = 'minted', poa_token_id = ?, poa_minted_at = CURRENT_TIMESTAMP WHERE id = ?"
+            converted_update_sql, update_params = convert_sql_for_postgres(update_sql, [token_id, participant_id])
+            await db_manager.execute_query(converted_update_sql, update_params)
         
         print(f"Bulk PoA mint confirmed for {len(participants)} participants - TX: {tx_hash}")
         return {
@@ -1916,8 +1933,9 @@ async def confirm_bulk_mint_poa(request: dict):
             "participants_updated": len(participants)
         }
         
-    finally:
-        conn.close()
+    except Exception as e:
+        print(f"Error in confirm_bulk_mint_poa: {e}")
+        raise HTTPException(status_code=500, detail=f"Bulk mint confirmation failed: {str(e)}")
 
 @app.post("/update_poa_metadata/{event_id}")
 async def update_poa_metadata_endpoint(event_id: int, request: dict):
@@ -1989,39 +2007,45 @@ async def batch_transfer_poa(event_id: int, request: dict):
     if not organizer_wallet:
         raise HTTPException(status_code=400, detail="Organizer wallet address required")
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
         # Get participants based on selection
         if participant_ids:
             # Get specific selected participants with minted NFTs
-            placeholders = ','.join('?' for _ in participant_ids)
-            cursor.execute(
-                f"SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'minted' AND poa_token_id IS NOT NULL",
-                [event_id] + participant_ids
-            )
+            placeholders = ','.join('$' + str(i) for i in range(2, len(participant_ids) + 2))
+            participants_sql = f"SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = $1 AND id IN ({placeholders}) AND poa_status = 'minted' AND poa_token_id IS NOT NULL"
+            participants_params = [event_id] + participant_ids
             print(f"[DEBUG] BATCH TRANSFER DEBUG - Querying selected participants: {participant_ids}")
         else:
             # Get all minted but not transferred participants (fallback)
-            cursor.execute(
-                "SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = ? AND poa_status = 'minted' AND poa_token_id IS NOT NULL",
-                (event_id,)
-            )
+            participants_sql = "SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = $1 AND poa_status = 'minted' AND poa_token_id IS NOT NULL"
+            participants_params = [event_id]
             print(f"[DEBUG] BATCH TRANSFER DEBUG - Querying all minted participants for event {event_id}")
-        participants = cursor.fetchall()
+        
+        converted_participants_sql, converted_params = convert_sql_for_postgres(participants_sql, participants_params)
+        participants_result = await db_manager.execute_query(converted_participants_sql, converted_params, fetch=True)
+        
+        # Convert result format
+        participants = [(p['wallet_address'] if isinstance(p, dict) else p[0], 
+                        p['poa_token_id'] if isinstance(p, dict) else p[1],
+                        p['name'] if isinstance(p, dict) else p[2]) for p in participants_result]
         
         if not participants:
             # Check if event exists
-            cursor.execute("SELECT COUNT(*) FROM events WHERE id = ?", (event_id,))
-            event_exists = cursor.fetchone()[0] > 0
+            event_check_sql = "SELECT COUNT(*) FROM events WHERE id = ?"
+            converted_event_check_sql, event_check_params = convert_sql_for_postgres(event_check_sql, [event_id])
+            event_check_result = await db_manager.execute_query(converted_event_check_sql, event_check_params, fetch=True)
+            event_exists = (event_check_result[0]['count'] if isinstance(event_check_result[0], dict) else event_check_result[0][0]) > 0
             
             if not event_exists:
                 raise HTTPException(status_code=404, detail=f"Event ID {event_id} not found")
             
             # Check all participants for this event
-            cursor.execute("SELECT wallet_address, poa_status, poa_token_id FROM participants WHERE event_id = ?", (event_id,))
-            all_participants = cursor.fetchall()
+            all_participants_sql = "SELECT wallet_address, poa_status, poa_token_id FROM participants WHERE event_id = ?"
+            converted_all_participants_sql, all_participants_params = convert_sql_for_postgres(all_participants_sql, [event_id])
+            all_participants_result = await db_manager.execute_query(converted_all_participants_sql, all_participants_params, fetch=True)
+            all_participants = [(p['wallet_address'] if isinstance(p, dict) else p[0],
+                                p['poa_status'] if isinstance(p, dict) else p[1],
+                                p['poa_token_id'] if isinstance(p, dict) else p[2]) for p in all_participants_result]
             
             if not all_participants:
                 raise HTTPException(status_code=404, detail=f"No participants found for event {event_id}")
@@ -2069,8 +2093,9 @@ async def batch_transfer_poa(event_id: int, request: dict):
             "organizer_wallet": organizer_wallet
         }
         
-    finally:
-        conn.close()
+    except Exception as e:
+        print(f"Error in batch_transfer_poa: {e}")
+        raise HTTPException(status_code=500, detail=f"Batch transfer preparation failed: {str(e)}")
 
 @app.post("/confirm_batch_transfer_poa")
 async def confirm_batch_transfer_poa(request: dict):
@@ -2082,27 +2107,21 @@ async def confirm_batch_transfer_poa(request: dict):
     if not all([event_id, tx_hash]):
         raise HTTPException(status_code=400, detail="Missing required fields")
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
         # Update participants based on selection
         if participant_ids:
             # Update specific selected participants to transferred status
-            placeholders = ','.join('?' for _ in participant_ids)
-            cursor.execute(
-                f"UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'minted'",
-                [event_id] + participant_ids
-            )
+            placeholders = ','.join('$' + str(i) for i in range(2, len(participant_ids) + 2))
+            update_sql = f"UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = $1 AND id IN ({placeholders}) AND poa_status = 'minted'"
+            update_params = [event_id] + participant_ids
         else:
             # Fallback to update all minted participants to transferred status
-            cursor.execute(
-                "UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = ? AND poa_status = 'minted'",
-                (event_id,)
-            )
+            update_sql = "UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = $1 AND poa_status = 'minted'"
+            update_params = [event_id]
         
-        updated_count = cursor.rowcount
-        conn.commit()
+        converted_update_sql, converted_params = convert_sql_for_postgres(update_sql, update_params)
+        result = await db_manager.execute_query(converted_update_sql, converted_params)
+        updated_count = len(participant_ids) if participant_ids else 0  # PostgreSQL doesn't return rowcount easily
         
         print(f"Batch PoA transfer confirmed for {updated_count} participants - TX: {tx_hash}")
         return {
@@ -2111,8 +2130,9 @@ async def confirm_batch_transfer_poa(request: dict):
             "participants_updated": updated_count
         }
         
-    finally:
-        conn.close()
+    except Exception as e:
+        print(f"Error in confirm_batch_transfer_poa: {e}")
+        raise HTTPException(status_code=500, detail=f"Batch transfer confirmation failed: {str(e)}")
 
 @app.post("/upload_template/{event_id}")
 async def upload_template(event_id: int, file: UploadFile = File(...)):
@@ -2171,10 +2191,10 @@ async def generate_certificates(event_id: int):
         else:
             event_name, event_date, sponsors, template_path = event[0], event[1], event[2], event[3]
         
-        # Get all participants for this event who have PoA minted but no certificate
+        # Get all participants for this event who have PoA transferred but no certificate
         participants_sql = """SELECT wallet_address, email, name, team_name 
                              FROM participants 
-                             WHERE event_id = ? AND poa_status = 'minted' AND certificate_status = 'not_generated'"""
+                             WHERE event_id = ? AND poa_status = 'transferred' AND certificate_status = 'not_generated'"""
         converted_participants_sql, participants_params = convert_sql_for_postgres(participants_sql, [event_id])
         participants_result = await db_manager.execute_query(converted_participants_sql, participants_params, fetch=True)
         
@@ -2237,28 +2257,31 @@ async def generate_certificates(event_id: int):
 @app.post("/send_emails/{event_id}")
 async def send_emails(event_id: int):
     """Send certificate emails to all participants"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
         # Get event details
-        cursor.execute("SELECT event_name FROM events WHERE id = ?", (event_id,))
-        event = cursor.fetchone()
+        event_sql = "SELECT event_name FROM events WHERE id = ?"
+        converted_event_sql, event_params = convert_sql_for_postgres(event_sql, [event_id])
+        event_result = await db_manager.execute_query(converted_event_sql, event_params, fetch=True)
         
-        if not event:
+        if not event_result:
             raise HTTPException(status_code=404, detail="Event not found")
         
-        event_name = event[0]
+        event_name = event_result[0]['event_name'] if isinstance(event_result[0], dict) else event_result[0][0]
         
-        # Get participants with certificates
-        cursor.execute(
-            """SELECT name, email, certificate_ipfs_hash, certificate_token_id, wallet_address, poa_token_id
-               FROM participants 
-               WHERE event_id = ? AND certificate_status = 'completed' AND certificate_token_id IS NOT NULL""",
-            (event_id,)
-        )
+        # Get participants with certificates (updated for new PostgreSQL schema)
+        participants_sql = """SELECT name, email, certificate_ipfs, certificate_token_id, wallet_address, poa_token_id
+                             FROM participants 
+                             WHERE event_id = ? AND certificate_status = 'generated' AND certificate_token_id IS NOT NULL"""
+        converted_participants_sql, participants_params = convert_sql_for_postgres(participants_sql, [event_id])
+        participants_result = await db_manager.execute_query(converted_participants_sql, participants_params, fetch=True)
         
-        participants = cursor.fetchall()
+        # Convert result format
+        participants = [(p['name'] if isinstance(p, dict) else p[0],
+                        p['email'] if isinstance(p, dict) else p[1],
+                        p['certificate_ipfs'] if isinstance(p, dict) else p[2],
+                        p['certificate_token_id'] if isinstance(p, dict) else p[3],
+                        p['wallet_address'] if isinstance(p, dict) else p[4],
+                        p['poa_token_id'] if isinstance(p, dict) else p[5]) for p in participants_result]
         
         if not participants:
             return {"message": "No participants with certificates found"}
@@ -2363,8 +2386,9 @@ async def send_emails(event_id: int):
             "failed": failed_emails
         }
         
-    finally:
-        conn.close()
+    except Exception as e:
+        print(f"Error in send_emails: {e}")
+        raise HTTPException(status_code=500, detail=f"Email sending failed: {str(e)}")
 
 @app.get("/events")
 async def get_events():
