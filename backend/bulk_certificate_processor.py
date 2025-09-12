@@ -311,7 +311,7 @@ class BulkCertificateProcessor:
             WHERE id = ?
         """
         params = [
-            str(token_id),  # Convert to string for large numbers  
+            int(token_id),  # PostgreSQL expects integer type for certificate_token_id
             ipfs_data.get('image_hash'),
             participant_id
         ]
