@@ -1841,12 +1841,12 @@ async def bulk_mint_poa(event_id: int, request: dict):
         if participant_ids:
             # Get specific selected participants
             placeholders = ','.join('?' for _ in participant_ids)
-            participants_sql = f"SELECT wallet_address, name FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'registered'"
+            participants_sql = f"SELECT wallet_address, name FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'not_minted'"
             participants_params = [event_id] + participant_ids
             print(f"[DEBUG] BULK MINT DEBUG - Querying selected participants: {participant_ids}")
         else:
             # Get all registered participants for this event (fallback)
-            participants_sql = "SELECT wallet_address, name FROM participants WHERE event_id = ? AND poa_status = 'registered'"
+            participants_sql = "SELECT wallet_address, name FROM participants WHERE event_id = ? AND poa_status = 'not_minted'"
             participants_params = [event_id]
             print(f"[DEBUG] BULK MINT DEBUG - Querying all participants for event {event_id}")
         

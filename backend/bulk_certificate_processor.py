@@ -9,6 +9,7 @@ import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
+from database import db_manager
 
 load_dotenv()
 
@@ -93,11 +94,8 @@ class BulkCertificateProcessor:
             print(f"Allocated nonce: {nonce}")
             return nonce
 
-    def get_poa_holders_for_event(self, event_id, participant_ids=None):
+    async def get_poa_holders_for_event(self, event_id, participant_ids=None):
         """Get participants who have PoA tokens for a specific event, optionally filtered by participant IDs"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
         if participant_ids:
             # Get specific selected participants with PoA tokens
             placeholders = ','.join('?' for _ in participant_ids)
@@ -106,43 +104,46 @@ class BulkCertificateProcessor:
                 FROM participants p
                 WHERE p.event_id = ? AND p.id IN ({placeholders}) AND p.poa_status = 'transferred' AND p.poa_token_id IS NOT NULL AND p.poa_token_id > 0
             """
-            cursor.execute(query, [event_id] + participant_ids)
+            params = [event_id] + participant_ids
             print(f"[DEBUG] CERTIFICATES - Querying selected participants: {participant_ids}")
         else:
             # Get all participants with PoA tokens (fallback)
-            cursor.execute("""
+            query = """
                 SELECT DISTINCT p.id, p.name, p.email, p.wallet_address, p.team_name, p.poa_token_id
                 FROM participants p
                 WHERE p.event_id = ? AND p.poa_status = 'transferred' AND p.poa_token_id IS NOT NULL AND p.poa_token_id > 0
-            """, (event_id,))
+            """
+            params = [event_id]
             print(f"[DEBUG] CERTIFICATES - Querying all participants for event {event_id}")
         
-        participants = cursor.fetchall()
-        conn.close()
+        participants_result = await db_manager.execute_query(query, params, fetch=True)
         
         return [
             {
-                "id": row[0],
-                "name": row[1],
-                "email": row[2],
-                "wallet_address": row[3],
-                "team_name": row[4] or "",
-                "poa_token_id": row[5]
+                "id": row[0] if isinstance(row, tuple) else row['id'],
+                "name": row[1] if isinstance(row, tuple) else row['name'],
+                "email": row[2] if isinstance(row, tuple) else row['email'],
+                "wallet_address": row[3] if isinstance(row, tuple) else row['wallet_address'],
+                "team_name": (row[4] if isinstance(row, tuple) else row['team_name']) or "",
+                "poa_token_id": row[5] if isinstance(row, tuple) else row['poa_token_id']
             }
-            for row in participants
+            for row in participants_result
         ]
 
-    def get_event_details(self, event_id):
+    async def get_event_details(self, event_id):
         """Get event details for certificate generation"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        query = "SELECT event_name, event_date, certificate_template FROM events WHERE id = ?"
+        params = [event_id]
         
-        cursor.execute("SELECT event_name, event_date, certificate_template_path FROM events WHERE id = ?", (event_id,))
-        event = cursor.fetchone()
-        conn.close()
+        event_result = await db_manager.execute_query(query, params, fetch=True)
         
-        if event:
-            return {"name": event[0], "date": event[1], "template": event[2]}
+        if event_result:
+            event = event_result[0]
+            return {
+                "name": event[0] if isinstance(event, tuple) else event['event_name'], 
+                "date": event[1] if isinstance(event, tuple) else event['event_date'], 
+                "template": event[2] if isinstance(event, tuple) else event['certificate_template']
+            }
         return None
 
     async def mint_certificate_nft(self, wallet_address, event_id, ipfs_hash):
@@ -297,12 +298,9 @@ class BulkCertificateProcessor:
                 "error": str(e)
             }
 
-    def update_certificate_status(self, participant_id, token_id, tx_hash, certificate_path, ipfs_data):
+    async def update_certificate_status(self, participant_id, token_id, tx_hash, certificate_path, ipfs_data):
         """Update participant certificate status in database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
+        query = """
             UPDATE participants 
             SET certificate_status = 'completed',
                 certificate_token_id = ?,
@@ -311,17 +309,17 @@ class BulkCertificateProcessor:
                 certificate_ipfs_hash = ?,
                 certificate_metadata_uri = ?
             WHERE id = ?
-        """, (
+        """
+        params = [
             str(token_id),  # Convert to string for large numbers
             tx_hash,
             certificate_path,
             ipfs_data.get('image_hash'),
             ipfs_data.get('metadata_url'),
             participant_id
-        ))
+        ]
         
-        conn.commit()
-        conn.close()
+        await db_manager.execute_query(query, params)
     
     async def process_single_participant(self, participant, event_details, event_id):
         """Process a single participant certificate in parallel"""
@@ -383,8 +381,7 @@ class BulkCertificateProcessor:
                 }
             
             # Update database
-            await asyncio.to_thread(
-                self.update_certificate_status,
+            await self.update_certificate_status(
                 participant['id'],
                 mint_result['token_id'],
                 mint_result['tx_hash'],
@@ -428,12 +425,12 @@ class BulkCertificateProcessor:
             print(f"Participant IDs filter: {participant_ids}")
             
             # Get event details
-            event_details = self.get_event_details(event_id)
+            event_details = await self.get_event_details(event_id)
             if not event_details:
                 return {"success": False, "error": "Event not found"}
             
             # Get PoA holders (filtered by participant_ids if provided)
-            participants = self.get_poa_holders_for_event(event_id, participant_ids=participant_ids)
+            participants = await self.get_poa_holders_for_event(event_id, participant_ids=participant_ids)
             if not participants:
                 error_msg = "No PoA holders found for selected participants" if participant_ids else "No PoA holders found for this event"
                 return {"success": False, "error": error_msg}
