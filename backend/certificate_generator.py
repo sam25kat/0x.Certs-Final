@@ -25,32 +25,41 @@ class CertificateGenerator:
         # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
     
-    def format_date(self, date_string):
+    def format_date(self, date_input):
         """Convert various date formats to readable format like 'January 15, 2025'"""
         try:
-            # Try to parse common date formats
-            date_formats = [
-                "%Y-%m-%d",           # 2025-01-15
-                "%m/%d/%Y",           # 01/15/2025  
-                "%d/%m/%Y",           # 15/01/2025
-                "%B %d, %Y",          # January 15, 2025 (already formatted)
-                "%Y-%m-%d %H:%M:%S",  # 2025-01-15 10:30:00
-                "%m-%d-%Y",           # 01-15-2025
-            ]
+            # Handle datetime.date objects directly
+            if hasattr(date_input, 'strftime'):
+                return date_input.strftime("%d %b %Y")  # Format as "15 Jan 2025"
             
-            for date_format in date_formats:
-                try:
-                    parsed_date = datetime.strptime(date_string.strip(), date_format)
-                    return parsed_date.strftime("%d %b %Y")  # Format as "15 Jan 2025"
-                except ValueError:
-                    continue
+            # Handle string inputs
+            if isinstance(date_input, str):
+                # Try to parse common date formats
+                date_formats = [
+                    "%Y-%m-%d",           # 2025-01-15
+                    "%m/%d/%Y",           # 01/15/2025  
+                    "%d/%m/%Y",           # 15/01/2025
+                    "%B %d, %Y",          # January 15, 2025 (already formatted)
+                    "%Y-%m-%d %H:%M:%S",  # 2025-01-15 10:30:00
+                    "%m-%d-%Y",           # 01-15-2025
+                ]
+                
+                for date_format in date_formats:
+                    try:
+                        parsed_date = datetime.strptime(date_input.strip(), date_format)
+                        return parsed_date.strftime("%d %b %Y")  # Format as "15 Jan 2025"
+                    except ValueError:
+                        continue
+                
+                # If no format matches, return the original string
+                return date_input
             
-            # If no format matches, return the original string
-            return date_string
+            # For any other type, convert to string
+            return str(date_input)
             
         except Exception:
-            # Fallback to original string if anything goes wrong
-            return date_string
+            # Fallback to string conversion if anything goes wrong
+            return str(date_input)
 
     def generate_certificate(self, participant_name, event_name, event_date, participant_email, team_name="", template_filename=None):
         """Generate a personalized certificate"""
