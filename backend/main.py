@@ -1351,10 +1351,11 @@ async def create_event(event: EventCreate, organizer_id: int = 1):
         else:
             event_date = event.event_date
         
-        # Insert event into database
+        # Insert event into database with proper datetime handling
+        created_at = datetime.now() if db_manager.is_postgres else datetime.now().isoformat()
         insert_sql, insert_params = convert_sql_for_postgres(
             "INSERT INTO events (id, event_code, event_name, event_date, sponsors, description, created_at, is_active, certificate_template) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [event_id, event_code, event.event_name, event_date, event.sponsors, event.description, datetime.now().isoformat(), 1, event.certificate_template or 'default']
+            [event_id, event_code, event.event_name, event_date, event.sponsors, event.description, created_at, 1, event.certificate_template or 'default']
         )
         await db_manager.execute_query(insert_sql, insert_params)
         
@@ -1468,7 +1469,7 @@ async def register_participant(participant: ParticipantRegister):
                (wallet_address, event_id, name, email, team_name, telegram_username, registration_date, poa_status, certificate_status) 
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [participant.wallet_address, event_id, participant.name, participant.email, participant.team_name, 
-             participant.telegram_username, datetime.now().isoformat(), 'not_minted', 'not_generated']
+             participant.telegram_username, datetime.now() if db_manager.is_postgres else datetime.now().isoformat(), 'not_minted', 'not_generated']
         )
         
         participant_id = await db_manager.execute_query(register_sql, register_params)
@@ -1741,7 +1742,7 @@ async def confirm_poa_mint(request: dict):
         # Update participant record with PoA mint confirmation
         update_sql, update_params = convert_sql_for_postgres(
             "UPDATE participants SET poa_status = ?, poa_minted_at = ? WHERE wallet_address = ? AND event_id = ?",
-            ['minted', datetime.now().isoformat(), wallet_address, event_id]
+            ['minted', datetime.now() if db_manager.is_postgres else datetime.now().isoformat(), wallet_address, event_id]
         )
         
         result = await db_manager.execute_query(update_sql, update_params)
