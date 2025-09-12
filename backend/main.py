@@ -1026,7 +1026,16 @@ async def startup_event():
     
     # Initialize database schema (sync)
     init_db()
-    print("Database initialized with connection pool")
+    
+    # Initialize new database system and ensure IOTOPIA event
+    try:
+        from database import init_database_tables, ensure_iotopia_event
+        await init_database_tables()
+        await ensure_iotopia_event()
+        print("Database initialized with persistent PostgreSQL support")
+    except Exception as e:
+        print(f"Database initialization error: {e}")
+        print("Database initialized with connection pool")
     
     # Start 25 concurrent email workers
     email_workers = []
