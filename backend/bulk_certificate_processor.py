@@ -10,6 +10,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from database import db_manager
+from main import convert_sql_for_postgres
 
 load_dotenv()
 
@@ -116,7 +117,8 @@ class BulkCertificateProcessor:
             params = [event_id]
             print(f"[DEBUG] CERTIFICATES - Querying all participants for event {event_id}")
         
-        participants_result = await db_manager.execute_query(query, params, fetch=True)
+        converted_query, converted_params = convert_sql_for_postgres(query, params)
+        participants_result = await db_manager.execute_query(converted_query, converted_params, fetch=True)
         
         return [
             {
@@ -135,7 +137,8 @@ class BulkCertificateProcessor:
         query = "SELECT event_name, event_date, certificate_template FROM events WHERE id = ?"
         params = [event_id]
         
-        event_result = await db_manager.execute_query(query, params, fetch=True)
+        converted_query, converted_params = convert_sql_for_postgres(query, params)
+        event_result = await db_manager.execute_query(converted_query, converted_params, fetch=True)
         
         if event_result:
             event = event_result[0]
@@ -319,7 +322,8 @@ class BulkCertificateProcessor:
             participant_id
         ]
         
-        await db_manager.execute_query(query, params)
+        converted_query, converted_params = convert_sql_for_postgres(query, params)
+        await db_manager.execute_query(converted_query, converted_params)
     
     async def process_single_participant(self, participant, event_details, event_id):
         """Process a single participant certificate in parallel"""
