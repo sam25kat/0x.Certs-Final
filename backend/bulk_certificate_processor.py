@@ -9,8 +9,7 @@ import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
-from database import db_manager
-from main import convert_sql_for_postgres
+from database import db_manager, convert_sql_for_postgres
 
 load_dotenv()
 

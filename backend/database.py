@@ -60,6 +60,29 @@ class DatabaseManager:
 # Global database manager instance
 db_manager = DatabaseManager()
 
+def convert_sql_for_postgres(sql_query, params=None):
+    """Convert SQLite SQL syntax to PostgreSQL"""
+    if not db_manager.is_postgres:
+        return sql_query, params
+    
+    # Convert ? placeholders to $1, $2, etc.
+    param_count = 1
+    converted_sql = ""
+    i = 0
+    while i < len(sql_query):
+        if sql_query[i] == '?':
+            converted_sql += f"${param_count}"
+            param_count += 1
+        else:
+            converted_sql += sql_query[i]
+        i += 1
+    
+    # Convert SQLite specific syntax to PostgreSQL
+    converted_sql = converted_sql.replace("TRUE", "true").replace("FALSE", "false")
+    converted_sql = converted_sql.replace("AUTOINCREMENT", "")
+    
+    return converted_sql, params
+
 async def init_database_tables():
     """Initialize database tables - works for both SQLite and PostgreSQL"""
     
