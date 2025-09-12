@@ -13,9 +13,11 @@ load_dotenv()
 
 class CertificateGenerator:
     def __init__(self):
-        self.default_template_path = "../certificate_template/default.pdf"
-        self.template_dir = "../certificate_template"
-        self.output_dir = "certificates"
+        # Use absolute paths relative to this file's directory
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.default_template_path = os.path.join(base_dir, "certificate_template", "default.pdf")
+        self.template_dir = os.path.join(base_dir, "certificate_template")
+        self.output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certificates")
         self.pinata_api_key = os.getenv("PINATA_API_KEY")
         self.pinata_secret = os.getenv("PINATA_SECRET_API_KEY")
         self.pinata_jwt = os.getenv("PINATA_JWT")
@@ -64,6 +66,13 @@ class CertificateGenerator:
                     template_path = self.default_template_path
             else:
                 template_path = self.default_template_path
+            
+            # Check if template exists
+            if not os.path.exists(template_path):
+                return {
+                    'success': False,
+                    'error': f'Template file not found: {template_path}'
+                }
             
             # Open the PDF template
             doc = fitz.open(template_path)

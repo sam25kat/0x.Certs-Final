@@ -341,6 +341,7 @@ class BulkCertificateProcessor:
             )
             
             if not cert_result['success']:
+                print(f"Certificate generation failed for {participant['name']}: {cert_result.get('error', 'Unknown error')}")
                 return {
                     "participant": participant['name'],
                     "step": "certificate_generation",
@@ -361,6 +362,7 @@ class BulkCertificateProcessor:
             )
             
             if not ipfs_result['success']:
+                print(f"IPFS upload failed for {participant['name']}: {ipfs_result.get('error', 'Unknown error')}")
                 return {
                     "participant": participant['name'],
                     "step": "ipfs_upload",
@@ -376,6 +378,7 @@ class BulkCertificateProcessor:
             )
             
             if not mint_result['success']:
+                print(f"NFT minting failed for {participant['name']}: {mint_result.get('error', 'Unknown error')}")
                 return {
                     "participant": participant['name'],
                     "step": "nft_minting",
@@ -409,6 +412,9 @@ class BulkCertificateProcessor:
             }
             
         except Exception as e:
+            print(f"Exception in process_single_participant for {participant['name']}: {str(e)}")
+            import traceback
+            print(f"Full traceback: {traceback.format_exc()}")
             return {
                 "participant": participant['name'],
                 "step": "processing",
