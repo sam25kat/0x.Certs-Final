@@ -1819,13 +1819,13 @@ async def bulk_mint_poa(event_id: int, request: dict):
         # Get participants based on selection
         if participant_ids:
             # Get specific selected participants
-            placeholders = ','.join('$' + str(i) for i in range(2, len(participant_ids) + 2))
-            participants_sql = f"SELECT wallet_address, name FROM participants WHERE event_id = $1 AND id IN ({placeholders}) AND poa_status = 'registered'"
+            placeholders = ','.join('?' for _ in participant_ids)
+            participants_sql = f"SELECT wallet_address, name FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'registered'"
             participants_params = [event_id] + participant_ids
             print(f"[DEBUG] BULK MINT DEBUG - Querying selected participants: {participant_ids}")
         else:
             # Get all registered participants for this event (fallback)
-            participants_sql = "SELECT wallet_address, name FROM participants WHERE event_id = $1 AND poa_status = 'registered'"
+            participants_sql = "SELECT wallet_address, name FROM participants WHERE event_id = ? AND poa_status = 'registered'"
             participants_params = [event_id]
             print(f"[DEBUG] BULK MINT DEBUG - Querying all participants for event {event_id}")
         
@@ -1904,12 +1904,12 @@ async def confirm_bulk_mint_poa(request: dict):
         # Get participants based on selection
         if participant_ids:
             # Get specific selected participants that were minted
-            placeholders = ','.join('$' + str(i) for i in range(2, len(participant_ids) + 2))
-            participants_sql = f"SELECT id, wallet_address FROM participants WHERE event_id = $1 AND id IN ({placeholders}) AND poa_status = 'registered' ORDER BY id"
+            placeholders = ','.join('?' for _ in participant_ids)
+            participants_sql = f"SELECT id, wallet_address FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'registered' ORDER BY id"
             participants_params = [event_id] + participant_ids
         else:
             # Fallback to all registered participants for this event
-            participants_sql = "SELECT id, wallet_address FROM participants WHERE event_id = $1 AND poa_status = 'registered' ORDER BY id"
+            participants_sql = "SELECT id, wallet_address FROM participants WHERE event_id = ? AND poa_status = 'registered' ORDER BY id"
             participants_params = [event_id]
         
         converted_participants_sql, converted_params = convert_sql_for_postgres(participants_sql, participants_params)
@@ -2012,13 +2012,13 @@ async def batch_transfer_poa(event_id: int, request: dict):
         # Get participants based on selection
         if participant_ids:
             # Get specific selected participants with minted NFTs
-            placeholders = ','.join('$' + str(i) for i in range(2, len(participant_ids) + 2))
-            participants_sql = f"SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = $1 AND id IN ({placeholders}) AND poa_status = 'minted' AND poa_token_id IS NOT NULL"
+            placeholders = ','.join('?' for _ in participant_ids)
+            participants_sql = f"SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'minted' AND poa_token_id IS NOT NULL"
             participants_params = [event_id] + participant_ids
             print(f"[DEBUG] BATCH TRANSFER DEBUG - Querying selected participants: {participant_ids}")
         else:
             # Get all minted but not transferred participants (fallback)
-            participants_sql = "SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = $1 AND poa_status = 'minted' AND poa_token_id IS NOT NULL"
+            participants_sql = "SELECT wallet_address, poa_token_id, name FROM participants WHERE event_id = ? AND poa_status = 'minted' AND poa_token_id IS NOT NULL"
             participants_params = [event_id]
             print(f"[DEBUG] BATCH TRANSFER DEBUG - Querying all minted participants for event {event_id}")
         
@@ -2112,12 +2112,12 @@ async def confirm_batch_transfer_poa(request: dict):
         # Update participants based on selection
         if participant_ids:
             # Update specific selected participants to transferred status
-            placeholders = ','.join('$' + str(i) for i in range(2, len(participant_ids) + 2))
-            update_sql = f"UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = $1 AND id IN ({placeholders}) AND poa_status = 'minted'"
+            placeholders = ','.join('?' for _ in participant_ids)
+            update_sql = f"UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'minted'"
             update_params = [event_id] + participant_ids
         else:
             # Fallback to update all minted participants to transferred status
-            update_sql = "UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = $1 AND poa_status = 'minted'"
+            update_sql = "UPDATE participants SET poa_status = 'transferred', poa_transferred_at = CURRENT_TIMESTAMP WHERE event_id = ? AND poa_status = 'minted'"
             update_params = [event_id]
         
         converted_update_sql, converted_params = convert_sql_for_postgres(update_sql, update_params)
