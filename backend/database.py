@@ -184,66 +184,6 @@ async def init_database_tables():
             print(f"Error creating table {i}: {e}")
             print(f"SQL: {sql}")
 
-async def migrate_participants_table():
-    """Fix participants table schema - drop and recreate with proper primary key"""
-    try:
-        print("Checking participants table schema...")
-        
-        if db_manager.is_postgres:
-            # PostgreSQL: Drop and recreate table
-            await db_manager.execute_query("DROP TABLE IF EXISTS participants CASCADE")
-            await db_manager.execute_query("""
-                CREATE TABLE participants (
-                    id SERIAL PRIMARY KEY,
-                    wallet_address VARCHAR(42) NOT NULL,
-                    event_id INTEGER REFERENCES events(id),
-                    name VARCHAR(255) NOT NULL,
-                    email VARCHAR(255) NOT NULL,
-                    team_name VARCHAR(255),
-                    telegram_username VARCHAR(100),
-                    registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    poa_status VARCHAR(50) DEFAULT 'not_minted',
-                    poa_token_id INTEGER,
-                    poa_minted_at TIMESTAMP,
-                    poa_transferred_at TIMESTAMP,
-                    certificate_status VARCHAR(50) DEFAULT 'not_generated',
-                    certificate_token_id INTEGER,
-                    certificate_minted_at TIMESTAMP,
-                    certificate_transferred_at TIMESTAMP,
-                    certificate_ipfs VARCHAR(255),
-                    UNIQUE(wallet_address, event_id)
-                )
-            """)
-            print("PostgreSQL participants table recreated with proper schema")
-        else:
-            # SQLite: Drop and recreate table  
-            await db_manager.execute_query("DROP TABLE IF EXISTS participants")
-            await db_manager.execute_query("""
-                CREATE TABLE participants (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    wallet_address TEXT NOT NULL,
-                    event_id INTEGER,
-                    name TEXT NOT NULL,
-                    email TEXT NOT NULL,
-                    team_name TEXT,
-                    telegram_username TEXT,
-                    registration_date TEXT DEFAULT CURRENT_TIMESTAMP,
-                    poa_status TEXT DEFAULT 'not_minted',
-                    poa_token_id INTEGER,
-                    poa_minted_at TEXT,
-                    poa_transferred_at TEXT,
-                    certificate_status TEXT DEFAULT 'not_generated',
-                    certificate_token_id INTEGER,
-                    certificate_minted_at TEXT,
-                    certificate_transferred_at TEXT,
-                    certificate_ipfs TEXT,
-                    UNIQUE(wallet_address, event_id)
-                )
-            """)
-            print("SQLite participants table recreated with proper schema")
-            
-    except Exception as e:
-        print(f"Error migrating participants table: {e}")
 
 async def ensure_iotopia_event():
     """Ensure IOTOPIA event exists in database"""

@@ -1068,9 +1068,8 @@ async def startup_event():
     
     # Initialize new database system and ensure IOTOPIA event
     try:
-        from database import init_database_tables, ensure_iotopia_event, migrate_participants_table
+        from database import init_database_tables, ensure_iotopia_event
         await init_database_tables()
-        await migrate_participants_table()
         await ensure_iotopia_event()
         print("Database initialized with persistent PostgreSQL support")
     except Exception as e:
@@ -1926,11 +1925,11 @@ async def confirm_bulk_mint_poa(request: dict):
         if participant_ids:
             # Get specific selected participants that were minted
             placeholders = ','.join('?' for _ in participant_ids)
-            participants_sql = f"SELECT id, wallet_address FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'registered' ORDER BY id"
+            participants_sql = f"SELECT id, wallet_address FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'not_minted' ORDER BY id"
             participants_params = [event_id] + participant_ids
         else:
             # Fallback to all registered participants for this event
-            participants_sql = "SELECT id, wallet_address FROM participants WHERE event_id = ? AND poa_status = 'registered' ORDER BY id"
+            participants_sql = "SELECT id, wallet_address FROM participants WHERE event_id = ? AND poa_status = 'not_minted' ORDER BY id"
             participants_params = [event_id]
         
         converted_participants_sql, converted_params = convert_sql_for_postgres(participants_sql, participants_params)
