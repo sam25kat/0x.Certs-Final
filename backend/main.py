@@ -511,18 +511,16 @@ def generate_session_token() -> str:
     """Generate a secure session token"""
     return secrets.token_urlsafe(32)
 
-def is_organizer_email(email: str) -> bool:
+async def is_organizer_email(email: str) -> bool:
     """Check if email is in organizer list"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
     try:
-        cursor.execute(
-            "SELECT id FROM organizer_emails WHERE email = ? AND is_active = TRUE",
-            (email,)
-        )
-        return cursor.fetchone() is not None
-    finally:
-        conn.close()
+        sql_query = "SELECT email FROM organizers WHERE email = ?"
+        converted_sql, params = convert_sql_for_postgres(sql_query, [email])
+        result = await db_manager.execute_query(converted_sql, params, fetch=True)
+        return len(result) > 0 if result else False
+    except Exception as e:
+        print(f"Error checking organizer email: {e}")
+        return False
 
 def is_root_email(email: str) -> bool:
     """Check if email is a root organizer email"""
@@ -560,20 +558,30 @@ def send_otp_email(email: str, otp_code: str):
     """
     send_email(email, subject, body)
 
-def verify_session_token(token: str) -> Optional[str]:
+async def verify_session_token(token: str) -> Optional[str]:
     """Verify session token and return email if valid"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
     try:
-        cursor.execute("""
-            SELECT email FROM organizer_otp_sessions 
-            WHERE session_token = ? AND is_used = TRUE 
-            AND datetime('now') < datetime(expires_at, '+24 hours')
-        """, (token,))
-        result = cursor.fetchone()
-        return result[0] if result else None
-    finally:
-        conn.close()
+        if db_manager.is_postgres:
+            sql_query = """
+                SELECT organizer_email FROM organizer_sessions 
+                WHERE session_token = $1 AND is_active = 1 
+                AND expires_at > CURRENT_TIMESTAMP
+            """
+            result = await db_manager.execute_query(sql_query, [token], fetch=True)
+        else:
+            sql_query = """
+                SELECT organizer_email FROM organizer_sessions 
+                WHERE session_token = ? AND is_active = 1 
+                AND datetime('now') < datetime(expires_at)
+            """
+            result = await db_manager.execute_query(sql_query, [token], fetch=True)
+        
+        if result and len(result) > 0:
+            return result[0]['organizer_email'] if isinstance(result[0], dict) else result[0][1]
+        return None
+    except Exception as e:
+        print(f"Error verifying session token: {e}")
+        return None
 
 def upload_to_pinata(file_bytes: bytes, filename: str) -> str:
     """Upload file to Pinata IPFS"""
@@ -1095,7 +1103,7 @@ async def organizer_login(request: OrganizerLoginRequest):
     email = request.email.lower().strip()
     
     # Check if email is authorized organizer
-    if not is_organizer_email(email):
+    if not await is_organizer_email(email):
         raise HTTPException(
             status_code=403, 
             detail="Email not authorized for organizer access"
@@ -1192,7 +1200,7 @@ async def add_organizer_email(request: OrganizerAddEmail, session_token: str = N
         raise HTTPException(status_code=401, detail="Session token required")
     
     # Verify session
-    organizer_email = verify_session_token(session_token)
+    organizer_email = await verify_session_token(session_token)
     if not organizer_email:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     
@@ -1229,7 +1237,7 @@ async def remove_organizer_email(request: OrganizerRemoveEmail, session_token: s
         raise HTTPException(status_code=401, detail="Session token required")
     
     # Verify session
-    organizer_email = verify_session_token(session_token)
+    organizer_email = await verify_session_token(session_token)
     if not organizer_email:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     
@@ -1266,7 +1274,7 @@ async def get_organizer_emails(session_token: str = None):
         raise HTTPException(status_code=401, detail="Session token required")
     
     # Verify session
-    organizer_email = verify_session_token(session_token)
+    organizer_email = await verify_session_token(session_token)
     if not organizer_email:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     
@@ -1298,30 +1306,39 @@ async def get_organizer_emails(session_token: str = None):
 @app.post("/create_event")
 async def create_event(event: EventCreate, organizer_id: int = 1):
     """Create a new event and generate 6-digit code"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
     
     try:
         # Generate unique event code
         while True:
             event_code = generate_event_code()
-            cursor.execute("SELECT id FROM events WHERE event_code = ?", (event_code,))
-            if not cursor.fetchone():
+            check_sql, check_params = convert_sql_for_postgres(
+                "SELECT id FROM events WHERE event_code = ?",
+                [event_code]
+            )
+            existing = await db_manager.execute_query(check_sql, check_params, fetch=True)
+            if not existing:
                 break
         
         # Generate event ID
         event_id = random.randint(1000, 9999)
         while True:
-            cursor.execute("SELECT id FROM events WHERE id = ?", (event_id,))
-            if not cursor.fetchone():
+            id_check_sql, id_check_params = convert_sql_for_postgres(
+                "SELECT id FROM events WHERE id = ?",
+                [event_id]
+            )
+            existing_id = await db_manager.execute_query(id_check_sql, id_check_params, fetch=True)
+            if not existing_id:
                 break
             event_id = random.randint(1000, 9999)
         
-        cursor.execute(
-            "INSERT INTO events (id, event_code, event_name, event_date, sponsors, description, organizer_id, certificate_template_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (event_id, event_code, event.event_name, event.event_date, event.sponsors, event.description, organizer_id, event.certificate_template)
+        # Insert event into database
+        insert_sql, insert_params = convert_sql_for_postgres(
+            "INSERT INTO events (id, event_code, event_name, event_date, sponsors, description, created_at, is_active, certificate_template) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [event_id, event_code, event.event_name, event.event_date, event.sponsors, event.description, datetime.now().isoformat(), 1, event.certificate_template or 'default']
         )
-        conn.commit()
+        await db_manager.execute_query(insert_sql, insert_params)
+        
+        print(f"Event created in database: {event.event_name} with code {event_code}")
         
         # Create event on blockchain if configured
         if w3 and CONTRACT_ADDRESS:
@@ -1359,8 +1376,9 @@ async def create_event(event: EventCreate, organizer_id: int = 1):
             "message": "Event created successfully"
         }
         
-    finally:
-        conn.close()
+    except Exception as e:
+        print(f"Error creating event: {e}")
+        raise HTTPException(status_code=500, detail=f"Error creating event: {str(e)}")
 
 @app.post("/register_participant")
 async def register_participant(participant: ParticipantRegister):
@@ -1699,20 +1717,24 @@ async def confirm_poa_mint(request: dict):
     if not all([wallet_address, event_id, tx_hash]):
         raise HTTPException(status_code=400, detail="Missing required fields")
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
-        # Update participant record
-        cursor.execute(
-            "UPDATE participants SET poa_minted = TRUE WHERE wallet_address = ? AND event_id = ?",
-            (wallet_address, event_id)
+        # Update participant record with PoA mint confirmation
+        update_sql, update_params = convert_sql_for_postgres(
+            "UPDATE participants SET poa_status = ?, poa_minted_at = ? WHERE wallet_address = ? AND event_id = ?",
+            ['minted', datetime.now().isoformat(), wallet_address, event_id]
         )
         
-        if cursor.rowcount == 0:
+        result = await db_manager.execute_query(update_sql, update_params)
+        
+        # Check if participant was found and updated
+        check_sql, check_params = convert_sql_for_postgres(
+            "SELECT wallet_address FROM participants WHERE wallet_address = ? AND event_id = ?",
+            [wallet_address, event_id]
+        )
+        participant = await db_manager.execute_query(check_sql, check_params, fetch=True)
+        
+        if not participant:
             raise HTTPException(status_code=404, detail="Participant not found")
-            
-        conn.commit()
         
         print(f"PoA mint confirmed for {wallet_address} - TX: {tx_hash}")
         return {
@@ -1720,8 +1742,9 @@ async def confirm_poa_mint(request: dict):
             "tx_hash": tx_hash
         }
         
-    finally:
-        conn.close()
+    except Exception as e:
+        print(f"Error confirming PoA mint: {e}")
+        raise HTTPException(status_code=500, detail=f"Error confirming PoA mint: {str(e)}")
 
 @app.post("/generate_poa_metadata/{event_id}")
 async def generate_poa_metadata_endpoint(event_id: int):
@@ -2130,46 +2153,51 @@ async def upload_template(event_id: int, file: UploadFile = File(...)):
 @app.post("/generate_certificates/{event_id}")
 async def generate_certificates(event_id: int):
     """Generate certificates for all participants of an event"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
         # Get event details
-        cursor.execute(
-            "SELECT event_name, event_date, sponsors, certificate_template_path FROM events WHERE id = ?",
-            (event_id,)
-        )
-        event = cursor.fetchone()
+        event_sql = "SELECT event_name, event_date, sponsors, certificate_template FROM events WHERE id = ?"
+        converted_event_sql, event_params = convert_sql_for_postgres(event_sql, [event_id])
+        event_result = await db_manager.execute_query(converted_event_sql, event_params, fetch=True)
         
-        if not event:
+        if not event_result:
             raise HTTPException(status_code=404, detail="Event not found")
         
-        event_name, event_date, sponsors, template_path = event
+        event = event_result[0]
+        if isinstance(event, dict):
+            event_name = event['event_name']
+            event_date = event['event_date'] 
+            sponsors = event['sponsors']
+            template_path = event.get('certificate_template', 'default')
+        else:
+            event_name, event_date, sponsors, template_path = event[0], event[1], event[2], event[3]
         
-        # Get all participants for this event
-        cursor.execute(
-            """SELECT id, wallet_address, email, name, team_name 
-               FROM participants 
-               WHERE event_id = ? AND poa_minted = TRUE AND certificate_minted = FALSE""",
-            (event_id,)
-        )
+        # Get all participants for this event who have PoA minted but no certificate
+        participants_sql = """SELECT wallet_address, email, name, team_name 
+                             FROM participants 
+                             WHERE event_id = ? AND poa_status = 'minted' AND certificate_status = 'not_generated'"""
+        converted_participants_sql, participants_params = convert_sql_for_postgres(participants_sql, [event_id])
+        participants_result = await db_manager.execute_query(converted_participants_sql, participants_params, fetch=True)
         
-        participants = cursor.fetchall()
-        
-        if not participants:
+        if not participants_result:
             return {"message": "No eligible participants found"}
         
         successful_certificates = 0
         failed_certificates = 0
         
-        for participant in participants:
-            participant_id, wallet_address, email, name, team_name = participant
+        for participant in participants_result:
+            if isinstance(participant, dict):
+                wallet_address = participant['wallet_address']
+                email = participant['email']
+                name = participant['name']
+                team_name = participant.get('team_name', '')
+            else:
+                wallet_address, email, name, team_name = participant[0], participant[1], participant[2], participant[3] or ''
             
             try:
                 # Generate certificate JPEG
                 cert_bytes = generate_certificate(
                     template_path or "", name, event_name, team_name or "", 
-                    event_date or "", sponsors or ""
+                    str(event_date) or "", sponsors or ""
                 )
                 
                 # Upload to IPFS
@@ -2179,14 +2207,16 @@ async def generate_certificates(event_id: int):
                 # Mint certificate NFT
                 mint_result = mint_certificate_nft(wallet_address, event_id, ipfs_hash)
                 
-                # Update participant record with token ID
-                cursor.execute(
-                    """UPDATE participants 
-                       SET certificate_minted = TRUE, certificate_ipfs_hash = ?, 
-                           certificate_token_id = ?, certificate_status = 'completed'
-                       WHERE id = ?""",
-                    (ipfs_hash, mint_result.get('token_id'), participant_id)
+                # Update participant record with certificate info
+                update_sql = """UPDATE participants 
+                               SET certificate_status = 'generated', certificate_ipfs = ?, 
+                                   certificate_token_id = ?, certificate_minted_at = CURRENT_TIMESTAMP
+                               WHERE wallet_address = ? AND event_id = ?"""
+                converted_update_sql, update_params = convert_sql_for_postgres(
+                    update_sql, 
+                    [ipfs_hash, mint_result.get('token_id'), wallet_address, event_id]
                 )
+                await db_manager.execute_query(converted_update_sql, update_params)
                 
                 successful_certificates += 1
                 
@@ -2194,16 +2224,15 @@ async def generate_certificates(event_id: int):
                 print(f"Failed to generate certificate for {name}: {e}")
                 failed_certificates += 1
         
-        conn.commit()
-        
         return {
             "message": "Certificate generation completed",
             "successful": successful_certificates,
             "failed": failed_certificates
         }
         
-    finally:
-        conn.close()
+    except Exception as e:
+        print(f"Error in generate_certificates: {e}")
+        raise HTTPException(status_code=500, detail=f"Certificate generation failed: {str(e)}")
 
 @app.post("/send_emails/{event_id}")
 async def send_emails(event_id: int):
@@ -2707,24 +2736,21 @@ async def get_participant_status(wallet_address: str):
 async def get_participant_status_from_db(wallet_address: str):
     """Get participant status directly from database for a specific wallet"""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        
-        # Get all participant records for this wallet with event information
-        cursor.execute("""
+        # Get all participant records for this wallet with event information using PostgreSQL JOIN
+        status_sql, status_params = convert_sql_for_postgres("""
             SELECT 
-                p.*,
-                e.event_name,
-                e.event_date,
-                e.event_code
+                p.wallet_address, p.event_id, p.name, p.email, p.team_name, p.telegram_username,
+                p.registration_date, p.poa_status, p.poa_token_id, p.poa_minted_at, p.poa_transferred_at,
+                p.certificate_status, p.certificate_token_id, p.certificate_minted_at, 
+                p.certificate_transferred_at, p.certificate_ipfs,
+                e.event_name, e.event_date, e.event_code
             FROM participants p
             JOIN events e ON p.event_id = e.id
             WHERE LOWER(p.wallet_address) = LOWER(?)
-            ORDER BY p.registered_at DESC
-        """, (wallet_address,))
+            ORDER BY p.registration_date DESC
+        """, [wallet_address])
         
-        participants = cursor.fetchall()
-        conn.close()
+        participants = await db_manager.execute_query(status_sql, status_params, fetch=True)
         
         if not participants:
             return {
@@ -2736,27 +2762,50 @@ async def get_participant_status_from_db(wallet_address: str):
         events_status = {}
         
         for participant in participants:
-            event_id = participant[5]  # event_id column
-            
-            events_status[str(event_id)] = {
-                "event_name": participant[24],  # event_name
-                "event_date": participant[25],  # event_date
-                "event_code": participant[26],  # event_code
-                "participant_name": participant[3],  # name
-                "participant_email": participant[2],  # email
-                "team_name": participant[4],  # team_name
-                "registered_at": participant[6],  # registered_at
-                "poa_status": participant[10],  # poa_status
-                "poa_token_id": participant[11],  # poa_token_id
-                "poa_minted_at": participant[12],  # poa_minted_at
-                "poa_transferred_at": participant[13],  # poa_transferred_at
-                "certificate_status": participant[14],  # certificate_status
-                "certificate_token_id": participant[15],  # certificate_token_id
-                "certificate_minted_at": participant[16],  # certificate_minted_at
-                "certificate_transferred_at": participant[17],  # certificate_transferred_at
-                "telegram_username": participant[21],  # telegram_username
-                "telegram_verified": bool(participant[22])  # telegram_verified
-            }
+            # Handle both PostgreSQL Record and SQLite tuple formats
+            if hasattr(participant, '__getitem__'):
+                event_id = participant[1]
+                events_status[str(event_id)] = {
+                    "event_name": participant[16],
+                    "event_date": participant[17], 
+                    "event_code": participant[18],
+                    "participant_name": participant[2],
+                    "participant_email": participant[3],
+                    "team_name": participant[4],
+                    "registered_at": participant[6],
+                    "poa_status": participant[7],
+                    "poa_token_id": participant[8],
+                    "poa_minted_at": participant[9],
+                    "poa_transferred_at": participant[10],
+                    "certificate_status": participant[11],
+                    "certificate_token_id": participant[12],
+                    "certificate_minted_at": participant[13],
+                    "certificate_transferred_at": participant[14],
+                    "telegram_username": participant[5],
+                    "telegram_verified": participant[5] is not None
+                }
+            else:
+                # Handle PostgreSQL Record object
+                event_id = getattr(participant, 'event_id', participant[1])
+                events_status[str(event_id)] = {
+                    "event_name": getattr(participant, 'event_name', participant[16]),
+                    "event_date": getattr(participant, 'event_date', participant[17]),
+                    "event_code": getattr(participant, 'event_code', participant[18]),
+                    "participant_name": getattr(participant, 'name', participant[2]),
+                    "participant_email": getattr(participant, 'email', participant[3]),
+                    "team_name": getattr(participant, 'team_name', participant[4]),
+                    "registered_at": getattr(participant, 'registration_date', participant[6]),
+                    "poa_status": getattr(participant, 'poa_status', participant[7]),
+                    "poa_token_id": getattr(participant, 'poa_token_id', participant[8]),
+                    "poa_minted_at": getattr(participant, 'poa_minted_at', participant[9]),
+                    "poa_transferred_at": getattr(participant, 'poa_transferred_at', participant[10]),
+                    "certificate_status": getattr(participant, 'certificate_status', participant[11]),
+                    "certificate_token_id": getattr(participant, 'certificate_token_id', participant[12]),
+                    "certificate_minted_at": getattr(participant, 'certificate_minted_at', participant[13]),
+                    "certificate_transferred_at": getattr(participant, 'certificate_transferred_at', participant[14]),
+                    "telegram_username": getattr(participant, 'telegram_username', participant[5]),
+                    "telegram_verified": getattr(participant, 'telegram_username', participant[5]) is not None
+                }
         
         return {
             "wallet_address": wallet_address,
@@ -2764,6 +2813,7 @@ async def get_participant_status_from_db(wallet_address: str):
         }
         
     except Exception as e:
+        print(f"Error getting participant status: {e}")
         return {"error": str(e)}
 
 @app.get("/config")
@@ -2868,7 +2918,7 @@ async def toggle_event_status(event_id: int, request: EventStatusUpdate, session
         raise HTTPException(status_code=401, detail="Session token required")
     
     # Verify session
-    organizer_email = verify_session_token(session_token)
+    organizer_email = await verify_session_token(session_token)
     if not organizer_email:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     
