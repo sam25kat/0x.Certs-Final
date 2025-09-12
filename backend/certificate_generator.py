@@ -196,6 +196,13 @@ class CertificateGenerator:
                     image_url = f"https://gateway.pinata.cloud/ipfs/{ipfs_hash}"
                     
                     # Create NFT metadata
+                    # Convert date to string if it's a date object
+                    event_date_str = metadata['event_date']
+                    if hasattr(event_date_str, 'strftime'):
+                        event_date_str = event_date_str.strftime("%d %b %Y")
+                    elif not isinstance(event_date_str, str):
+                        event_date_str = str(event_date_str)
+                    
                     nft_metadata = {
                         "name": f"{metadata['event_name']} - Participation Certificate",
                         "description": f"Certificate of participation for {metadata['event_name']} event issued to {metadata['participant_name']}",
@@ -204,7 +211,7 @@ class CertificateGenerator:
                             {"trait_type": "Type", "value": "Certificate"},
                             {"trait_type": "Event", "value": metadata['event_name']},
                             {"trait_type": "Participant", "value": metadata['participant_name']},
-                            {"trait_type": "Date", "value": metadata['event_date']},
+                            {"trait_type": "Date", "value": event_date_str},
                             {"trait_type": "Team", "value": metadata.get('team_name', 'N/A')}
                         ]
                     }
