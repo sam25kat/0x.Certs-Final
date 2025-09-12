@@ -123,7 +123,15 @@ export const api = {
 
   // Participant status from database
   getParticipantStatusFromDB: async (walletAddress: string): Promise<any> => {
-    const response = await fetch(`${API_BASE_URL}/participant_status_db/${walletAddress}`);
+    // Add timestamp to prevent caching
+    const timestamp = new Date().getTime();
+    const response = await fetch(`${API_BASE_URL}/participant_status_db/${walletAddress}?t=${timestamp}`, {
+      cache: 'no-cache',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache'
+      }
+    });
     if (!response.ok) throw new Error('Failed to fetch participant status from database');
     return response.json();
   },

@@ -1068,9 +1068,10 @@ async def startup_event():
     
     # Initialize new database system and ensure IOTOPIA event
     try:
-        from database import init_database_tables, migrate_database, ensure_iotopia_event
+        from database import init_database_tables, migrate_database, ensure_root_organizers, ensure_iotopia_event
         await init_database_tables()
         await migrate_database()
+        await ensure_root_organizers()
         await ensure_iotopia_event()
         print("Database initialized with persistent PostgreSQL support")
     except Exception as e:
@@ -1120,23 +1121,16 @@ async def organizer_login(request: OrganizerLoginRequest):
     otp_code = generate_otp()
     expires_at = datetime.now() + timedelta(minutes=10)
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
         # Clear any previous unused OTPs for this email
-        cursor.execute(
-            "UPDATE organizer_otp_sessions SET is_used = TRUE WHERE email = ? AND is_used = FALSE",
-            (email,)
-        )
+        clear_sql = "UPDATE organizer_otp_sessions SET is_used = ? WHERE email = ? AND is_used = ?"
+        clear_converted_sql, clear_params = convert_sql_for_postgres(clear_sql, [True, email, False])
+        await db_manager.execute_query(clear_converted_sql, clear_params)
         
         # Create new OTP session
-        cursor.execute("""
-            INSERT INTO organizer_otp_sessions (email, otp_code, expires_at)
-            VALUES (?, ?, ?)
-        """, (email, otp_code, expires_at))
-        
-        conn.commit()
+        insert_sql = "INSERT INTO organizer_otp_sessions (email, otp_code, expires_at) VALUES (?, ?, ?)"
+        insert_converted_sql, insert_params = convert_sql_for_postgres(insert_sql, [email, otp_code, expires_at])
+        await db_manager.execute_query(insert_converted_sql, insert_params)
         
         # Send OTP email
         try:
@@ -1144,12 +1138,13 @@ async def organizer_login(request: OrganizerLoginRequest):
             return {"message": "OTP sent to your email", "expires_in_minutes": 10}
         except Exception as e:
             # Clean up the OTP session if email fails
-            cursor.execute("DELETE FROM organizer_otp_sessions WHERE email = ? AND otp_code = ?", (email, otp_code))
-            conn.commit()
+            delete_sql = "DELETE FROM organizer_otp_sessions WHERE email = ? AND otp_code = ?"
+            delete_converted_sql, delete_params = convert_sql_for_postgres(delete_sql, [email, otp_code])
+            await db_manager.execute_query(delete_converted_sql, delete_params)
             raise HTTPException(status_code=500, detail=f"Failed to send OTP email: {str(e)}")
         
-    finally:
-        conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @app.post("/organizer/verify-otp")
 async def verify_otp(request: OrganizerVerifyOTP):

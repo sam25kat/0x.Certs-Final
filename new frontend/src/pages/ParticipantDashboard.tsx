@@ -16,6 +16,7 @@ export default function ParticipantDashboard() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [telegramVerified, setTelegramVerified] = useState(false);
   const [telegramVerifying, setTelegramVerifying] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [selectedInfo, setSelectedInfo] = useState<any>(null);
   const [showNetworkConfig, setShowNetworkConfig] = useState(false);
@@ -65,11 +66,16 @@ export default function ParticipantDashboard() {
   const loadUserNFTStatus = async () => {
     if (!address) return;
     
+    setIsRefreshing(true);
     try {
       const result = await api.getParticipantStatusFromDB(address);
       setParticipantStatus(result);
+      showNotification('success', 'Refreshed', 'Your NFT status has been updated');
     } catch (error) {
       console.error('Error loading NFT status:', error);
+      showNotification('error', 'Refresh Failed', 'Unable to update your NFT status. Please try again.');
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -1058,8 +1064,10 @@ export default function ParticipantDashboard() {
                   onClick={loadUserNFTStatus}
                   variant="ghost"
                   size="sm"
+                  disabled={isRefreshing}
+                  className={isRefreshing ? 'animate-spin' : ''}
                 >
-                  Refresh
+                  {isRefreshing ? '🔄' : 'Refresh'}
                 </Button>
               </div>
             </CardHeader>

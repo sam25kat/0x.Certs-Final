@@ -143,6 +143,17 @@ async def init_database_tables():
                 expires_at TIMESTAMP,
                 is_active INTEGER DEFAULT 1
             )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS organizer_otp_sessions (
+                id SERIAL PRIMARY KEY,
+                email VARCHAR(255) NOT NULL,
+                otp_code VARCHAR(10) NOT NULL,
+                expires_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '10 minutes'),
+                is_used BOOLEAN DEFAULT FALSE,
+                session_token VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
             """
         ]
     else:
@@ -202,6 +213,17 @@ async def init_database_tables():
                 expires_at TEXT,
                 is_active INTEGER DEFAULT 1
             )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS organizer_otp_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL,
+                otp_code TEXT NOT NULL,
+                expires_at TEXT DEFAULT (datetime('now', '+10 minutes')),
+                is_used INTEGER DEFAULT 0,
+                session_token TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
             """
         ]
     
@@ -209,7 +231,7 @@ async def init_database_tables():
     for i, sql in enumerate(tables_sql):
         try:
             await db_manager.execute_query(sql)
-            table_names = ["events", "participants", "organizers", "organizer_sessions"]
+            table_names = ["events", "participants", "organizers", "organizer_sessions", "organizer_otp_sessions"]
             print(f"Table '{table_names[i]}' created/verified successfully")
         except Exception as e:
             print(f"Error creating table {i}: {e}")
@@ -236,6 +258,50 @@ async def migrate_database():
     else:
         # For SQLite, we would need to recreate the table, but for now just log
         print("SQLite migration would require table recreation - skipping for existing tables")
+
+async def ensure_root_organizers():
+    """Ensure root organizers exist in database"""
+    root_organizers = [
+        "sameer@0x.day",
+        "shivani@0x.day", 
+        "saijadhav@0x.day",
+        "naresh@0x.day"
+    ]
+    
+    try:
+        for email in root_organizers:
+            # Check if organizer already exists
+            if db_manager.is_postgres:
+                existing = await db_manager.execute_query(
+                    "SELECT email FROM organizers WHERE email = $1",
+                    [email],
+                    fetch=True
+                )
+            else:
+                existing = await db_manager.execute_query(
+                    "SELECT email FROM organizers WHERE email = ?",
+                    [email],
+                    fetch=True
+                )
+            
+            if not existing:
+                # Create root organizer
+                if db_manager.is_postgres:
+                    await db_manager.execute_query(
+                        "INSERT INTO organizers (email, created_at) VALUES ($1, CURRENT_TIMESTAMP)",
+                        [email]
+                    )
+                else:
+                    await db_manager.execute_query(
+                        "INSERT INTO organizers (email, created_at) VALUES (?, CURRENT_TIMESTAMP)",
+                        [email]
+                    )
+                print(f"Root organizer created: {email}")
+            else:
+                print(f"Root organizer already exists: {email}")
+                
+    except Exception as e:
+        print(f"Error ensuring root organizers: {e}")
 
 async def ensure_iotopia_event():
     """Ensure IOTOPIA event exists in database"""
