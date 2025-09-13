@@ -366,18 +366,19 @@ class BulkCertificateProcessor:
             
             if not ipfs_result['success']:
                 print(f"IPFS upload failed for {participant['name']}: {ipfs_result.get('error', 'Unknown error')}")
-                return {
-                    "participant": participant['name'],
-                    "step": "ipfs_upload",
-                    "success": False,
-                    "error": ipfs_result['error']
-                }
+                print(f"Continuing with local certificate storage for {participant['name']}")
+                # Continue with local storage - set dummy IPFS hash
+                ipfs_hash = f"local_cert_{participant['id']}_{int(time.time())}"
+                ipfs_url = cert_result['file_path']  # Use local file path
+            else:
+                ipfs_hash = ipfs_result['metadata_hash']
+                ipfs_url = ipfs_result['metadata_url']
             
             # Mint NFT
             mint_result = await self.mint_certificate_nft(
                 participant['wallet_address'],
                 event_id,
-                ipfs_result['metadata_hash']
+                ipfs_hash
             )
             
             if not mint_result['success']:
@@ -389,13 +390,21 @@ class BulkCertificateProcessor:
                     "error": mint_result['error']
                 }
             
-            # Update database
+            # Update database - create ipfs_result structure for compatibility
+            ipfs_result_for_db = {
+                'success': ipfs_result['success'] if 'ipfs_result' in locals() and ipfs_result['success'] else False,
+                'metadata_hash': ipfs_hash,
+                'metadata_url': ipfs_url,
+                'image_hash': ipfs_result.get('image_hash', ipfs_hash) if 'ipfs_result' in locals() and ipfs_result['success'] else ipfs_hash,
+                'image_url': ipfs_result.get('image_url', ipfs_url) if 'ipfs_result' in locals() and ipfs_result['success'] else ipfs_url
+            }
+            
             await self.update_certificate_status(
                 participant['id'],
                 mint_result['token_id'],
                 mint_result['tx_hash'],
                 cert_result['file_path'],
-                ipfs_result
+                ipfs_result_for_db
             )
             
             return {
@@ -404,7 +413,7 @@ class BulkCertificateProcessor:
                 "token_id": mint_result['token_id'],
                 "tx_hash": mint_result['tx_hash'],
                 "certificate_path": cert_result['file_path'],
-                "ipfs_url": ipfs_result['image_url'],
+                "ipfs_url": ipfs_url,
                 "email_data": {
                     "name": participant['name'],
                     "email": participant['email'],
