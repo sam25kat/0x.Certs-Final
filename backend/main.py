@@ -1875,7 +1875,23 @@ async def bulk_mint_poa(event_id: int, request: dict):
         print(f"[DEBUG] ALL PARTICIPANTS FOR EVENT {event_id}: {all_participants}")
         
         if not participants_result:
-            raise HTTPException(status_code=404, detail="No registered participants found")
+            # Get eligible participants for better error message
+            eligible_sql = "SELECT id, name, poa_status FROM participants WHERE event_id = ? AND (poa_status = 'not_minted' OR poa_status IS NULL)"
+            eligible_converted_sql, eligible_params = convert_sql_for_postgres(eligible_sql, [event_id])
+            eligible_participants = await db_manager.execute_query(eligible_converted_sql, eligible_params, fetch=True)
+            
+            if participant_ids:
+                # Check what status the requested participants have
+                check_sql = f"SELECT id, name, poa_status FROM participants WHERE event_id = ? AND id IN ({placeholders})"
+                check_converted_sql, check_params = convert_sql_for_postgres(check_sql, [event_id] + participant_ids)
+                requested_participants = await db_manager.execute_query(check_converted_sql, check_params, fetch=True)
+                
+                error_msg = f"Selected participants are not eligible for minting. "
+                error_msg += f"Requested IDs {participant_ids} have statuses: {[(p[0], p[1], p[2]) for p in requested_participants]}. "
+                error_msg += f"Eligible participants: {[(p[0], p[1], p[2]) for p in eligible_participants]}"
+                raise HTTPException(status_code=404, detail=error_msg)
+            else:
+                raise HTTPException(status_code=404, detail=f"No participants eligible for minting. Eligible participants: {[(p[0], p[1], p[2]) for p in eligible_participants]}")
         
         # Convert result format
         participants = [(p['wallet_address'] if isinstance(p, dict) else p[0], 
@@ -2487,7 +2503,7 @@ async def get_participants(event_id: int):
     try:
         # Get all database participants using new db_manager
         participants_sql, participants_params = convert_sql_for_postgres(
-            """SELECT wallet_address, name, email, team_name, poa_status, poa_token_id, 
+            """SELECT id, wallet_address, name, email, team_name, poa_status, poa_token_id, 
                       poa_minted_at, poa_transferred_at, certificate_status, certificate_token_id,
                       certificate_minted_at, certificate_transferred_at, certificate_ipfs
                FROM participants WHERE event_id = ?""",
@@ -2504,37 +2520,39 @@ async def get_participants(event_id: int):
             for i, db_participant in enumerate(db_participants):
                 # Handle both PostgreSQL Record and SQLite tuple formats
                 if hasattr(db_participant, '__getitem__'):
-                    wallet_address = db_participant[0]
-                    name = db_participant[1]
-                    email = db_participant[2]
-                    team_name = db_participant[3]
-                    poa_status = db_participant[4]
-                    poa_token_id = db_participant[5]
-                    poa_minted_at = db_participant[6]
-                    poa_transferred_at = db_participant[7]
-                    certificate_status = db_participant[8]
-                    certificate_token_id = db_participant[9]
-                    certificate_minted_at = db_participant[10]
-                    certificate_transferred_at = db_participant[11]
-                    certificate_ipfs = db_participant[12] if len(db_participant) > 12 else None
+                    participant_id = db_participant[0]
+                    wallet_address = db_participant[1]
+                    name = db_participant[2]
+                    email = db_participant[3]
+                    team_name = db_participant[4]
+                    poa_status = db_participant[5]
+                    poa_token_id = db_participant[6]
+                    poa_minted_at = db_participant[7]
+                    poa_transferred_at = db_participant[8]
+                    certificate_status = db_participant[9]
+                    certificate_token_id = db_participant[10]
+                    certificate_minted_at = db_participant[11]
+                    certificate_transferred_at = db_participant[12]
+                    certificate_ipfs = db_participant[13] if len(db_participant) > 13 else None
                 else:
                     # Handle Record object from PostgreSQL
-                    wallet_address = getattr(db_participant, 'wallet_address', db_participant[0])
-                    name = getattr(db_participant, 'name', db_participant[1])
-                    email = getattr(db_participant, 'email', db_participant[2])
-                    team_name = getattr(db_participant, 'team_name', db_participant[3])
-                    poa_status = getattr(db_participant, 'poa_status', db_participant[4])
-                    poa_token_id = getattr(db_participant, 'poa_token_id', db_participant[5])
-                    poa_minted_at = getattr(db_participant, 'poa_minted_at', db_participant[6])
-                    poa_transferred_at = getattr(db_participant, 'poa_transferred_at', db_participant[7])
-                    certificate_status = getattr(db_participant, 'certificate_status', db_participant[8])
-                    certificate_token_id = getattr(db_participant, 'certificate_token_id', db_participant[9])
-                    certificate_minted_at = getattr(db_participant, 'certificate_minted_at', db_participant[10])
-                    certificate_transferred_at = getattr(db_participant, 'certificate_transferred_at', db_participant[11])
+                    participant_id = getattr(db_participant, 'id', db_participant[0])
+                    wallet_address = getattr(db_participant, 'wallet_address', db_participant[1])
+                    name = getattr(db_participant, 'name', db_participant[2])
+                    email = getattr(db_participant, 'email', db_participant[3])
+                    team_name = getattr(db_participant, 'team_name', db_participant[4])
+                    poa_status = getattr(db_participant, 'poa_status', db_participant[5])
+                    poa_token_id = getattr(db_participant, 'poa_token_id', db_participant[6])
+                    poa_minted_at = getattr(db_participant, 'poa_minted_at', db_participant[7])
+                    poa_transferred_at = getattr(db_participant, 'poa_transferred_at', db_participant[8])
+                    certificate_status = getattr(db_participant, 'certificate_status', db_participant[9])
+                    certificate_token_id = getattr(db_participant, 'certificate_token_id', db_participant[10])
+                    certificate_minted_at = getattr(db_participant, 'certificate_minted_at', db_participant[11])
+                    certificate_transferred_at = getattr(db_participant, 'certificate_transferred_at', db_participant[12])
                     certificate_ipfs = getattr(db_participant, 'certificate_ipfs', None)
                 
                 participant = {
-                    "id": i + 1,  # Use index as ID since we don't have participant ID
+                    "id": participant_id,  # Use actual database participant ID
                     "wallet_address": wallet_address,
                     "event_id": event_id,
                     "name": name or 'Unknown',
