@@ -217,6 +217,7 @@ class CertificateGenerator:
                     }
                     
                     # Upload metadata to IPFS
+                    print(f"[DEBUG] Uploading metadata for {metadata['participant_name']}")
                     metadata_response = requests.post(
                         'https://api.pinata.cloud/pinning/pinJSONToIPFS',
                         headers={
@@ -231,6 +232,7 @@ class CertificateGenerator:
                             }
                         }
                     )
+                    print(f"[DEBUG] Metadata upload response: {metadata_response.status_code} - {metadata_response.text}")
                     
                     if metadata_response.status_code == 200:
                         metadata_hash = metadata_response.json()['IpfsHash']
@@ -242,11 +244,16 @@ class CertificateGenerator:
                             "metadata_hash": metadata_hash,
                             "metadata_url": f"https://gateway.pinata.cloud/ipfs/{metadata_hash}"
                         }
-                
-                return {
-                    "success": False,
-                    "error": f"IPFS upload failed: {response.text}"
-                }
+                    else:
+                        return {
+                            "success": False,
+                            "error": f"IPFS metadata upload failed: {metadata_response.text}"
+                        }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"IPFS image upload failed: {response.text}"
+                    }
                 
         except Exception as e:
             return {
