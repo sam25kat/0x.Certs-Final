@@ -1853,17 +1853,26 @@ async def bulk_mint_poa(event_id: int, request: dict):
         if participant_ids:
             # Get specific selected participants
             placeholders = ','.join('?' for _ in participant_ids)
-            participants_sql = f"SELECT wallet_address, name FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'not_minted'"
+            participants_sql = f"SELECT wallet_address, name FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND (poa_status = 'not_minted' OR poa_status IS NULL)"
             participants_params = [event_id] + participant_ids
             print(f"[DEBUG] BULK MINT DEBUG - Querying selected participants: {participant_ids}")
         else:
             # Get all registered participants for this event (fallback)
-            participants_sql = "SELECT wallet_address, name FROM participants WHERE event_id = ? AND poa_status = 'not_minted'"
+            participants_sql = "SELECT wallet_address, name FROM participants WHERE event_id = ? AND (poa_status = 'not_minted' OR poa_status IS NULL)"
             participants_params = [event_id]
             print(f"[DEBUG] BULK MINT DEBUG - Querying all participants for event {event_id}")
         
         converted_participants_sql, converted_params = convert_sql_for_postgres(participants_sql, participants_params)
+        print(f"[DEBUG] BULK MINT SQL: {converted_participants_sql}")
+        print(f"[DEBUG] BULK MINT PARAMS: {converted_params}")
         participants_result = await db_manager.execute_query(converted_participants_sql, converted_params, fetch=True)
+        print(f"[DEBUG] BULK MINT RESULT: {participants_result}")
+        
+        # Additional debug: Check what participants exist for this event
+        debug_sql = "SELECT id, wallet_address, name, poa_status FROM participants WHERE event_id = ?"
+        debug_converted_sql, debug_params = convert_sql_for_postgres(debug_sql, [event_id])
+        all_participants = await db_manager.execute_query(debug_converted_sql, debug_params, fetch=True)
+        print(f"[DEBUG] ALL PARTICIPANTS FOR EVENT {event_id}: {all_participants}")
         
         if not participants_result:
             raise HTTPException(status_code=404, detail="No registered participants found")
@@ -1938,11 +1947,11 @@ async def confirm_bulk_mint_poa(request: dict):
         if participant_ids:
             # Get specific selected participants that were minted
             placeholders = ','.join('?' for _ in participant_ids)
-            participants_sql = f"SELECT id, wallet_address FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND poa_status = 'not_minted' ORDER BY id"
+            participants_sql = f"SELECT id, wallet_address FROM participants WHERE event_id = ? AND id IN ({placeholders}) AND (poa_status = 'not_minted' OR poa_status IS NULL) ORDER BY id"
             participants_params = [event_id] + participant_ids
         else:
             # Fallback to all registered participants for this event
-            participants_sql = "SELECT id, wallet_address FROM participants WHERE event_id = ? AND poa_status = 'not_minted' ORDER BY id"
+            participants_sql = "SELECT id, wallet_address FROM participants WHERE event_id = ? AND (poa_status = 'not_minted' OR poa_status IS NULL) ORDER BY id"
             participants_params = [event_id]
         
         converted_participants_sql, converted_params = convert_sql_for_postgres(participants_sql, participants_params)
