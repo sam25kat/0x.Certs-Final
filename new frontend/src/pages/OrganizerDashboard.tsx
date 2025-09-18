@@ -79,6 +79,31 @@ export default function OrganizerDashboard() {
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number>(0);
   const [participants, setParticipants] = useState<{[key: number]: Participant[]}>({});
 
+  // Background certificate generation state
+  const [backgroundTasks, setBackgroundTasks] = useState<{[key: number]: {
+    taskId: string;
+    status: 'starting' | 'running' | 'completed' | 'failed';
+    total_participants: number;
+    completed: number;
+    failed: number;
+    current_step: string;
+    error?: string;
+  }}>({});
+
+  // Delete event confirmation state
+  const [deleteEventDialog, setDeleteEventDialog] = useState<{
+    open: boolean;
+    eventId: number | null;
+    eventName: string;
+  }>({
+    open: false,
+    eventId: null,
+    eventName: ''
+  });
+
+  // Search state for participants
+  const [participantSearchQuery, setParticipantSearchQuery] = useState<string>('');
+
   // Check for existing session on component mount
   useEffect(() => {
     const storedSession = localStorage.getItem('organizerSession');
@@ -92,6 +117,35 @@ export default function OrganizerDashboard() {
       }
     }
   }, []);
+
+  // Restore active background tasks on component mount
+  useEffect(() => {
+    const restoreBackgroundTasks = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/active_background_tasks`);
+        if (response.ok) {
+          const result = await response.json();
+          const activeTasks = result.active_tasks;
+
+          if (Object.keys(activeTasks).length > 0) {
+            console.log('Restoring background tasks:', activeTasks);
+            setBackgroundTasks(activeTasks);
+
+            // Start polling for each active task
+            Object.entries(activeTasks).forEach(([eventId, task]: [string, any]) => {
+              pollBackgroundTask(parseInt(eventId), task.taskId);
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error restoring background tasks:', error);
+      }
+    };
+
+    if (isAuthenticated) {
+      restoreBackgroundTasks();
+    }
+  }, [isAuthenticated]);
 
   // Load organizer emails when authenticated
   useEffect(() => {
@@ -1019,14 +1073,38 @@ export default function OrganizerDashboard() {
       const result = await response.json();
       
       if (!response.ok) {
+        // Handle detailed error responses
+        let errorMessage = 'Failed to generate certificates';
+        let suggestion = '';
+
+        if (result.detail) {
+          if (typeof result.detail === 'object') {
+            errorMessage = result.detail.error || errorMessage;
+            suggestion = result.detail.suggestion || result.detail.retry_suggestion || '';
+          } else {
+            errorMessage = result.detail;
+          }
+        }
+
+        const fullErrorMessage = suggestion ? `${errorMessage}. ${suggestion}` : errorMessage;
+
         setProgressDialog(prev => ({
           ...prev,
-          steps: prev.steps.map(step => 
-            step.status === 'loading' 
-              ? { ...step, status: 'error', error: result.detail || 'Failed to generate certificates' }
+          steps: prev.steps.map(step =>
+            step.status === 'loading'
+              ? { ...step, status: 'error', error: fullErrorMessage }
               : step
           )
         }));
+
+        // Show detailed toast for better user experience
+        toast({
+          title: "Certificate Generation Failed",
+          description: fullErrorMessage,
+          variant: "destructive",
+          duration: 8000, // Show longer for rate limiting messages
+        });
+
         return;
       }
 
@@ -1079,6 +1157,225 @@ export default function OrganizerDashboard() {
     }
   };
 
+  // Handle Generate All Certificates - Background processing
+  const handleGenerateAllCertificates = async (eventId: number) => {
+    if (!session?.sessionToken) {
+      toast({
+        title: "Session expired",
+        description: "Please log in again",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Start background task
+      const response = await fetch(`${API_BASE_URL}/start_background_certificate_generation/${eventId}?session_token=${session.sessionToken}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to start certificate generation');
+      }
+
+      // Initialize background task state
+      setBackgroundTasks(prev => ({
+        ...prev,
+        [eventId]: {
+          taskId: result.task_id,
+          status: 'starting',
+          total_participants: 0,
+          completed: 0,
+          failed: 0,
+          current_step: 'Starting background generation...',
+        }
+      }));
+
+      // Start polling for progress
+      pollBackgroundTask(eventId, result.task_id);
+
+      toast({
+        title: "Background Certificate Generation Started",
+        description: "Generating certificates for ALL participants with transferred PoA. Progress shown below.",
+        duration: 5000,
+      });
+
+    } catch (error) {
+      console.error('Error starting background generation:', error);
+      toast({
+        title: "Failed to start background generation",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Poll background task progress
+  const pollBackgroundTask = async (eventId: number, taskId: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/background_task_status/${taskId}`);
+      const result = await response.json();
+
+      if (response.ok) {
+        setBackgroundTasks(prev => ({
+          ...prev,
+          [eventId]: {
+            taskId: taskId,
+            status: result.status,
+            total_participants: result.total_participants,
+            completed: result.completed,
+            failed: result.failed,
+            current_step: result.current_step,
+            error: result.error
+          }
+        }));
+
+        // Continue polling if task is still running
+        if (result.status === 'running' || result.status === 'starting') {
+          setTimeout(() => pollBackgroundTask(eventId, taskId), 2000); // Poll every 2 seconds
+        } else if (result.status === 'completed') {
+          toast({
+            title: "Certificate Generation Completed!",
+            description: `Successfully generated ${result.completed} certificates. Emails have been sent.`,
+            duration: 10000,
+          });
+        } else if (result.status === 'failed') {
+          toast({
+            title: "Certificate Generation Failed",
+            description: result.error || 'Unknown error occurred',
+            variant: "destructive",
+            duration: 10000,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error polling background task:', error);
+    }
+  };
+
+  // Handle Delete Event
+  const handleDeleteEvent = async () => {
+    if (!deleteEventDialog.eventId) {
+      toast({
+        title: "Error",
+        description: "Invalid event",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Verify wallet address
+    if (address?.toLowerCase() !== '0x51489ad2efa688c61f8115e7a059e7bbfd89ea7d') {
+      toast({
+        title: "Unauthorized",
+        description: "Only authorized wallet can delete events",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/delete_event/${deleteEventDialog.eventId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to delete event');
+      }
+
+      // Close dialog
+      setDeleteEventDialog({ open: false, eventId: null, eventName: '' });
+
+      // Refresh events list
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+
+      toast({
+        title: "Event Deleted",
+        description: `Event "${deleteEventDialog.eventName}" has been permanently deleted.`,
+        duration: 5000,
+      });
+
+    } catch (error) {
+      console.error('Error deleting event:', error);
+      toast({
+        title: "Failed to delete event",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle Pause/Resume Background Task
+  const handlePauseBackgroundTask = async (eventId: number) => {
+    const task = backgroundTasks[eventId];
+    if (!task) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/pause_background_task/${task.taskId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to pause/resume task');
+      }
+
+      toast({
+        title: task.status === 'paused' ? "Task Resumed" : "Task Paused",
+        description: task.status === 'paused'
+          ? "Certificate generation has been resumed"
+          : "Certificate generation has been paused",
+        duration: 3000,
+      });
+
+    } catch (error) {
+      console.error('Error pausing/resuming task:', error);
+      toast({
+        title: "Failed to pause/resume task",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle Cancel Background Task
+  const handleCancelBackgroundTask = async (eventId: number) => {
+    const task = backgroundTasks[eventId];
+    if (!task) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/cancel_background_task/${task.taskId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to cancel task');
+      }
+
+      toast({
+        title: "Task Cancelled",
+        description: "Certificate generation has been cancelled",
+        variant: "destructive",
+        duration: 5000,
+      });
+
+    } catch (error) {
+      console.error('Error cancelling task:', error);
+      toast({
+        title: "Failed to cancel task",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    }
+  };
+
   // Check certificate status
   const handleCheckCertificateStatus = async (eventId: number) => {
     if (!session?.sessionToken) {
@@ -1119,19 +1416,10 @@ export default function OrganizerDashboard() {
 
   // Toggle event active status
   const handleToggleEventStatus = async (eventId: number, currentStatus: boolean) => {
-    if (!session?.sessionToken) {
-      toast({
-        title: "Session expired",
-        description: "Please log in again",
-        variant: "destructive",
-      });
-      return;
-    }
-    
     try {
       setLoadingStates(prev => ({ ...prev, [`toggle-${eventId}`]: true }));
-      
-      const response = await fetch(`${API_BASE_URL}/toggle_event_status/${eventId}?session_token=${session.sessionToken}`, {
+
+      const response = await fetch(`${API_BASE_URL}/toggle_event_status/${eventId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !currentStatus })
@@ -1197,9 +1485,24 @@ export default function OrganizerDashboard() {
       );
     }
 
-    const eventParticipants = participants[eventId] || [];
-    
-    if (eventParticipants.length === 0) {
+    const allEventParticipants = participants[eventId] || [];
+
+    // Filter participants based on search query
+    const eventParticipants = allEventParticipants.filter(participant => {
+      if (!participantSearchQuery) return true;
+
+      const searchLower = participantSearchQuery.toLowerCase();
+      return (
+        participant.name.toLowerCase().includes(searchLower) ||
+        participant.email.toLowerCase().includes(searchLower) ||
+        (participant.team_name && participant.team_name.toLowerCase().includes(searchLower)) ||
+        participant.wallet_address.toLowerCase().includes(searchLower) ||
+        participant.poa_status.toLowerCase().includes(searchLower) ||
+        (participant.certificate_status && participant.certificate_status.toLowerCase().includes(searchLower))
+      );
+    });
+
+    if (allEventParticipants.length === 0) {
       return (
         <div className="text-center py-8 text-muted-foreground">
           No participants found for this event.
@@ -1207,12 +1510,70 @@ export default function OrganizerDashboard() {
       );
     }
 
-    // Calculate statistics
-    const total = eventParticipants.length;
-    const registered = eventParticipants.filter(p => p.poa_status === 'registered').length;
-    const minted = eventParticipants.filter(p => p.poa_status === 'minted').length;
-    const transferred = eventParticipants.filter(p => p.poa_status === 'transferred').length;
-    const certificates = eventParticipants.filter(p => p.certificate_status === 'completed' || p.certificate_status === 'transferred').length;
+    if (eventParticipants.length === 0 && participantSearchQuery) {
+      return (
+        <div className="space-y-4">
+          {/* Statistics (show for all participants) */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 bg-muted/50 rounded-lg">
+            <div className="text-center">
+              <div className="text-2xl font-bold">{allEventParticipants.length}</div>
+              <div className="text-xs text-muted-foreground">Total</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-yellow-600">{allEventParticipants.filter(p => p.poa_status === 'not_minted').length}</div>
+              <div className="text-xs text-muted-foreground">Registered</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">{allEventParticipants.filter(p => p.poa_status === 'minted').length}</div>
+              <div className="text-xs text-muted-foreground">Minted</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">{allEventParticipants.filter(p => p.poa_status === 'transferred').length}</div>
+              <div className="text-xs text-muted-foreground">Transferred</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-600">{allEventParticipants.filter(p => p.certificate_status === 'completed' || p.certificate_status === 'transferred').length}</div>
+              <div className="text-xs text-muted-foreground">Certificates</div>
+            </div>
+          </div>
+
+          {/* Search Bar */}
+          <div className="p-4 bg-muted/30 rounded-lg border">
+            <div className="flex items-center gap-2">
+              <Input
+                id={`search-${eventId}`}
+                type="text"
+                placeholder="Search by name, email, team, wallet, PoA status, or cert status..."
+                value={participantSearchQuery}
+                onChange={(e) => setParticipantSearchQuery(e.target.value)}
+                className="flex-1"
+              />
+              {participantSearchQuery && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setParticipantSearchQuery('')}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="text-center py-8 text-muted-foreground">
+            <div className="text-lg font-medium">No participants match your search</div>
+            <p className="text-sm">Try adjusting your search terms or clear the search to see all participants.</p>
+          </div>
+        </div>
+      );
+    }
+
+    // Calculate statistics (use all participants for accurate totals)
+    const total = allEventParticipants.length;
+    const registered = allEventParticipants.filter(p => p.poa_status === 'not_minted').length;
+    const minted = allEventParticipants.filter(p => p.poa_status === 'minted').length;
+    const transferred = allEventParticipants.filter(p => p.poa_status === 'transferred').length;
+    const certificates = allEventParticipants.filter(p => p.certificate_status === 'completed' || p.certificate_status === 'transferred').length;
 
     return (
       <div className="space-y-4">
@@ -1238,6 +1599,34 @@ export default function OrganizerDashboard() {
             <div className="text-2xl font-bold text-purple-600">{certificates}</div>
             <div className="text-xs text-muted-foreground">Certificates</div>
           </div>
+        </div>
+
+        {/* Search Bar */}
+        <div className="p-4 bg-muted/30 rounded-lg border">
+          <div className="flex items-center gap-2">
+            <Input
+              id={`search-${eventId}`}
+              type="text"
+              placeholder="Search by name, email, team, wallet, PoA status, or cert status..."
+              value={participantSearchQuery}
+              onChange={(e) => setParticipantSearchQuery(e.target.value)}
+              className="flex-1"
+            />
+            {participantSearchQuery && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setParticipantSearchQuery('')}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+          {participantSearchQuery && (
+            <div className="mt-2 text-sm text-muted-foreground font-medium">
+              Showing {eventParticipants.length} of {allEventParticipants.length} participants
+            </div>
+          )}
         </div>
 
         {/* Selection Controls */}
@@ -1835,42 +2224,67 @@ export default function OrganizerDashboard() {
                           <Badge variant={event.is_active ? "default" : "secondary"} className="text-xs">
                             {event.is_active ? '✅ Active' : '❌ Inactive'}
                           </Badge>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleEventStatus(event.id, event.is_active);
-                            }}
-                            disabled={loadingStates[`toggle-${event.id}`]}
-                            className="h-6 px-2 text-xs"
-                          >
-                            {loadingStates[`toggle-${event.id}`] ? 'Updating...' : event.is_active ? 'Deactivate' : 'Activate'}
-                          </Button>
+                          {/* Toggle Event Status Button - Only for authorized wallet */}
+                          {address?.toLowerCase() === '0x51489ad2efa688c61f8115e7a059e7bbfd89ea7d' && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleEventStatus(event.id, event.is_active);
+                              }}
+                              disabled={loadingStates[`toggle-${event.id}`]}
+                              className="h-6 px-2 text-xs"
+                            >
+                              {loadingStates[`toggle-${event.id}`] ? 'Updating...' : event.is_active ? 'Deactivate' : 'Activate'}
+                            </Button>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <Badge variant="outline" className="font-mono text-xs">
-                            {event.event_code}
-                          </Badge>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyEventCode(event.event_code);
-                            }}
-                            className="h-6 px-2 text-xs"
-                          >
-                            <Copy className="h-3 w-3 mr-1" />
-                            Copy
-                          </Button>
-                          <span className="text-xs text-muted-foreground">ID: {event.id}</span>
-                        </div>
-                        {event.event_date && (
-                          <p className="text-sm text-muted-foreground">📅 {event.event_date}</p>
-                        )}
-                        <CardDescription className="mt-2">{event.description}</CardDescription>
                       </div>
+
+                      {/* Delete Event Button - Only for authorized wallet */}
+                      {address?.toLowerCase() === '0x51489ad2efa688c61f8115e7a059e7bbfd89ea7d' && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteEventDialog({
+                              open: true,
+                              eventId: event.id,
+                              eventName: event.event_name
+                            });
+                          }}
+                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          title="Delete Event"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="font-mono text-xs">
+                          {event.event_code}
+                        </Badge>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copyEventCode(event.event_code);
+                          }}
+                          className="h-6 px-2 text-xs"
+                        >
+                          <Copy className="h-3 w-3 mr-1" />
+                          Copy
+                        </Button>
+                        <span className="text-xs text-muted-foreground">ID: {event.id}</span>
+                      </div>
+                      {event.event_date && (
+                        <p className="text-sm text-muted-foreground">📅 {event.event_date}</p>
+                      )}
+                      <CardDescription className="mt-2">{event.description}</CardDescription>
                     </div>
                   </CardHeader>
                   
@@ -1920,7 +2334,115 @@ export default function OrganizerDashboard() {
                         <BarChart3 className="h-4 w-4 mr-2" />
                         {loadingStates[`status-${event.id}`] ? 'Checking...' : 'Certificate Status'}
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={() => handleGenerateAllCertificates(event.id)}
+                        disabled={backgroundTasks[event.id]?.status === 'running'}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <Award className="h-4 w-4 mr-2" />
+                        {backgroundTasks[event.id]?.status === 'running' ? 'Generating All...' : 'Generate All Certificates'}
+                      </Button>
                     </div>
+
+                    {/* Background Certificate Generation Progress */}
+                    {backgroundTasks[event.id] && (
+                      <div className="mt-4 p-4 bg-muted/30 rounded-lg border">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-medium text-sm">Generate All Certificates Progress</h4>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {backgroundTasks[event.id].completed} / {backgroundTasks[event.id].total_participants} completed
+                            </span>
+
+                            {/* Control Buttons */}
+                            {(backgroundTasks[event.id].status === 'running' || backgroundTasks[event.id].status === 'paused') && (
+                              <div className="flex gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handlePauseBackgroundTask(event.id)}
+                                  className="h-6 px-2 text-xs"
+                                >
+                                  {backgroundTasks[event.id].status === 'paused' ? 'Resume' : 'Pause'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => handleCancelBackgroundTask(event.id)}
+                                  className="h-6 px-2 text-xs"
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-muted rounded-full h-2 mb-2">
+                          <div
+                            className={`h-2 rounded-full transition-all duration-300 ${
+                              backgroundTasks[event.id].status === 'completed' ? 'bg-green-500' :
+                              backgroundTasks[event.id].status === 'failed' ? 'bg-destructive' :
+                              backgroundTasks[event.id].status === 'cancelled' ? 'bg-yellow-500' :
+                              backgroundTasks[event.id].status === 'paused' ? 'bg-orange-500' : 'bg-primary'
+                            }`}
+                            style={{
+                              width: backgroundTasks[event.id].total_participants > 0
+                                ? `${(backgroundTasks[event.id].completed / backgroundTasks[event.id].total_participants) * 100}%`
+                                : '0%'
+                            }}
+                          ></div>
+                        </div>
+
+                        {/* Status and Current Step */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-muted-foreground">{backgroundTasks[event.id].current_step}</span>
+                          <div className="flex items-center gap-2">
+                            {backgroundTasks[event.id].status === 'running' && (
+                              <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                            )}
+                            <span className={`text-xs font-medium ${
+                              backgroundTasks[event.id].status === 'completed' ? 'text-green-600' :
+                              backgroundTasks[event.id].status === 'failed' ? 'text-destructive' :
+                              backgroundTasks[event.id].status === 'cancelled' ? 'text-yellow-600' :
+                              backgroundTasks[event.id].status === 'paused' ? 'text-orange-600' : 'text-primary'
+                            }`}>
+                              {backgroundTasks[event.id].status === 'starting' ? 'Starting...' :
+                               backgroundTasks[event.id].status === 'running' ? 'Running...' :
+                               backgroundTasks[event.id].status === 'paused' ? 'Paused' :
+                               backgroundTasks[event.id].status === 'completed' ? 'Completed!' :
+                               backgroundTasks[event.id].status === 'cancelled' ? 'Cancelled' :
+                               backgroundTasks[event.id].status === 'failed' ? 'Failed' : backgroundTasks[event.id].status}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Error message if failed */}
+                        {backgroundTasks[event.id].status === 'failed' && backgroundTasks[event.id].error && (
+                          <div className="mt-2 p-2 bg-destructive/10 border border-destructive/20 rounded text-xs text-destructive">
+                            Error: {backgroundTasks[event.id].error}
+                          </div>
+                        )}
+
+                        {/* Success summary if completed */}
+                        {backgroundTasks[event.id].status === 'completed' && (
+                          <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700">
+                            ✅ Successfully generated {backgroundTasks[event.id].completed} certificates
+                            {backgroundTasks[event.id].failed > 0 && `, ${backgroundTasks[event.id].failed} failed`}
+                          </div>
+                        )}
+
+                        {/* Cancelled message */}
+                        {backgroundTasks[event.id].status === 'cancelled' && (
+                          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
+                            ⚠️ Certificate generation was cancelled
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Participants Section */}
                     {expandedEvents[event.id] && (
@@ -1936,6 +2458,50 @@ export default function OrganizerDashboard() {
           )}
         </div>
       </div>
+
+      {/* Delete Event Confirmation Dialog */}
+      <Dialog open={deleteEventDialog.open} onOpenChange={(open) =>
+        setDeleteEventDialog(prev => ({ ...prev, open }))
+      }>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Delete Event</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently delete this event? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Trash2 className="h-5 w-5 text-red-500" />
+                <span className="font-medium text-red-800">Event to be deleted:</span>
+              </div>
+              <p className="text-red-700 font-semibold">{deleteEventDialog.eventName}</p>
+              <p className="text-red-600 text-sm mt-1">
+                All participants, certificates, and related data will be permanently removed.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteEventDialog({ open: false, eventId: null, eventName: '' })}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteEvent}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Yes, Delete Event
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

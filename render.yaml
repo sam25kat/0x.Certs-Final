@@ -11,6 +11,6 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: DATABASE_URL
-        value: sqlite:///./certificates.db
+        value: postgresql://neondb_owner:npg_1yksRpPDbcq6@ep-ancient-flower-adtwsoft-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
       - key: PORT
         value: 10000

@@ -26,14 +26,18 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from web3 import Web3
 from PIL import Image, ImageDraw, ImageFont
-from bulk_certificate_processor import BulkCertificateProcessor
-from database import db_manager
 
 load_dotenv()
+from bulk_certificate_processor import BulkCertificateProcessor
+from database import db_manager
 
 # Global database pool
 db_pool = None
 email_queue = asyncio.Queue()
+
+# Background task tracking
+background_tasks = {}
+task_id_counter = 0
 
 # Helper function to convert SQL queries for PostgreSQL
 def convert_sql_for_postgres(sql_query, params=None):
@@ -567,23 +571,41 @@ def send_otp_email(email: str, otp_code: str):
 async def verify_session_token(token: str) -> Optional[str]:
     """Verify session token and return email if valid"""
     try:
+        print(f"Verifying session token: {token[:20]}... (PostgreSQL: {db_manager.is_postgres})")
+
         if db_manager.is_postgres:
             sql_query = """
-                SELECT organizer_email FROM organizer_sessions 
-                WHERE session_token = $1 AND is_active = 1 
+                SELECT organizer_email FROM organizer_sessions
+                WHERE session_token = $1 AND is_active = 1
                 AND expires_at > CURRENT_TIMESTAMP
             """
             result = await db_manager.execute_query(sql_query, [token], fetch=True)
         else:
             sql_query = """
-                SELECT organizer_email FROM organizer_sessions 
-                WHERE session_token = ? AND is_active = 1 
+                SELECT organizer_email FROM organizer_sessions
+                WHERE session_token = ? AND is_active = 1
                 AND datetime('now') < datetime(expires_at)
             """
             result = await db_manager.execute_query(sql_query, [token], fetch=True)
-        
+
+        print(f"Session query result: {result}")
+
+        # Debug: Check all sessions in database
+        if db_manager.is_postgres:
+            debug_query = "SELECT session_token, organizer_email, expires_at, is_active FROM organizer_sessions ORDER BY created_at DESC LIMIT 5"
+            debug_result = await db_manager.execute_query(debug_query, [], fetch=True)
+        else:
+            debug_query = "SELECT session_token, organizer_email, expires_at, is_active FROM organizer_sessions ORDER BY created_at DESC LIMIT 5"
+            debug_result = await db_manager.execute_query(debug_query, [], fetch=True)
+
+        print(f"Recent sessions in DB: {debug_result}")
+
         if result and len(result) > 0:
-            return result[0]['organizer_email'] if isinstance(result[0], dict) else result[0][1]
+            email = result[0]['organizer_email'] if isinstance(result[0], dict) else result[0][0]
+            print(f"Session valid for email: {email}")
+            return email
+
+        print("No valid session found")
         return None
     except Exception as e:
         print(f"Error verifying session token: {e}")
@@ -2932,10 +2954,223 @@ async def bulk_generate_certificates(event_id: int, request: dict = None):
                 "email_results": result.get("email_results", [])
             }
         else:
-            raise HTTPException(status_code=500, detail=result["error"])
-            
+            # Provide more detailed error information
+            error_detail = {
+                "error": result["error"],
+                "retry_suggestion": "Please try again in 1-2 minutes if rate limited"
+            }
+            raise HTTPException(status_code=500, detail=error_detail)
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Bulk certificate processing failed: {str(e)}")
+        error_msg = str(e)
+        # Provide helpful error messages based on the error type
+        if 'rate limit' in error_msg.lower() or 'too many requests' in error_msg.lower():
+            detail = {
+                "error": "Rate limited by blockchain network",
+                "suggestion": "Please wait 1-2 minutes before trying again",
+                "technical_error": error_msg
+            }
+        elif 'gas' in error_msg.lower():
+            detail = {
+                "error": "Network congestion detected",
+                "suggestion": "Please try again when network is less busy",
+                "technical_error": error_msg
+            }
+        elif 'connection' in error_msg.lower() or 'network' in error_msg.lower():
+            detail = {
+                "error": "Network connection issue",
+                "suggestion": "Please check your internet connection and try again",
+                "technical_error": error_msg
+            }
+        else:
+            detail = {
+                "error": "Certificate processing failed",
+                "suggestion": "Please contact support if this continues",
+                "technical_error": error_msg
+            }
+        raise HTTPException(status_code=500, detail=detail)
+
+@app.delete("/delete_event/{event_id}")
+async def delete_event(event_id: int):
+    """Delete an event - only for authorized wallet address (no session required)"""
+
+    print(f"Delete request for event {event_id}")
+
+    # No session verification needed - frontend already verified wallet address
+
+    try:
+        # Check if event exists
+        event_query = "SELECT event_name FROM events WHERE id = ?"
+        converted_query, params = convert_sql_for_postgres(event_query, [event_id])
+        event = await db_manager.execute_query(converted_query, params, fetch=True)
+
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        # Handle both PostgreSQL Record and SQLite tuple formats
+        if hasattr(event[0], 'event_name'):
+            event_name = event[0].event_name
+        elif isinstance(event[0], tuple):
+            event_name = event[0][0]
+        else:
+            event_name = event[0]['event_name']
+
+        # Delete participants first (foreign key constraint)
+        delete_participants_query = "DELETE FROM participants WHERE event_id = ?"
+        converted_query, params = convert_sql_for_postgres(delete_participants_query, [event_id])
+        await db_manager.execute_query(converted_query, params)
+
+        # Delete the event
+        delete_event_query = "DELETE FROM events WHERE id = ?"
+        converted_query, params = convert_sql_for_postgres(delete_event_query, [event_id])
+        await db_manager.execute_query(converted_query, params)
+
+        return {
+            "success": True,
+            "message": f"Event '{event_name}' and all related data have been permanently deleted",
+            "event_id": event_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting event {event_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete event: {str(e)}")
+
+@app.post("/start_background_certificate_generation/{event_id}")
+async def start_background_certificate_generation(event_id: int):
+    """Start background certificate generation for ALL participants with transferred PoA"""
+    global task_id_counter, background_tasks
+
+    task_id_counter += 1
+    task_id = f"cert_gen_{event_id}_{task_id_counter}"
+
+    # Initialize task status
+    background_tasks[task_id] = {
+        "event_id": event_id,
+        "status": "starting",
+        "total_participants": 0,
+        "completed": 0,
+        "failed": 0,
+        "current_step": "Initializing...",
+        "started_at": datetime.now().isoformat(),
+        "error": None
+    }
+
+    # Start background task
+    asyncio.create_task(background_certificate_generation(task_id, event_id))
+
+    return {"task_id": task_id, "status": "started"}
+
+@app.get("/background_task_status/{task_id}")
+async def get_background_task_status(task_id: str):
+    """Get status of background certificate generation task"""
+    if task_id not in background_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return background_tasks[task_id]
+
+@app.post("/cancel_background_task/{task_id}")
+async def cancel_background_task(task_id: str):
+    """Cancel a background certificate generation task"""
+    if task_id not in background_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    background_tasks[task_id]["status"] = "cancelled"
+    background_tasks[task_id]["current_step"] = "Cancelled by user"
+
+    return {"message": "Task cancelled successfully", "task_id": task_id}
+
+@app.post("/pause_background_task/{task_id}")
+async def pause_background_task(task_id: str):
+    """Pause a background certificate generation task"""
+    if task_id not in background_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    current_status = background_tasks[task_id]["status"]
+    if current_status == "running":
+        background_tasks[task_id]["status"] = "paused"
+        background_tasks[task_id]["current_step"] = "Paused by user"
+    elif current_status == "paused":
+        background_tasks[task_id]["status"] = "running"
+        background_tasks[task_id]["current_step"] = "Resuming processing..."
+
+    return {"message": "Task status updated", "task_id": task_id, "new_status": background_tasks[task_id]["status"]}
+
+@app.get("/active_background_tasks")
+async def get_active_background_tasks():
+    """Get all currently active background tasks"""
+    active_tasks = {}
+    for task_id, task_data in background_tasks.items():
+        if task_data["status"] in ["starting", "running", "paused"]:
+            # Extract event_id from task_id (format: cert_gen_{event_id}_{counter})
+            try:
+                event_id = int(task_id.split("_")[2])
+                active_tasks[event_id] = {
+                    "taskId": task_id,
+                    "status": task_data["status"],
+                    "total_participants": task_data["total_participants"],
+                    "completed": task_data["completed"],
+                    "failed": task_data["failed"],
+                    "current_step": task_data["current_step"],
+                    "error": task_data.get("error")
+                }
+            except (IndexError, ValueError):
+                continue
+
+    return {"active_tasks": active_tasks}
+
+async def background_certificate_generation(task_id: str, event_id: int):
+    """Background task for certificate generation"""
+    try:
+        # Update status
+        background_tasks[task_id]["status"] = "running"
+        background_tasks[task_id]["current_step"] = "Getting PoA holders..."
+
+        # Get ALL participants with transferred PoA (no participant_ids filter)
+        processor = BulkCertificateProcessor()
+
+        # Get participants count first
+        participants = await processor.get_poa_holders_for_event(event_id, participant_ids=None)
+        if not participants:
+            background_tasks[task_id]["status"] = "completed"
+            background_tasks[task_id]["current_step"] = "No PoA holders found"
+            background_tasks[task_id]["error"] = "No participants with transferred PoA found"
+            return
+
+        background_tasks[task_id]["total_participants"] = len(participants)
+        background_tasks[task_id]["current_step"] = f"Processing {len(participants)} participants..."
+
+        # Process certificates with progress tracking
+        result = await processor.process_bulk_certificates_with_progress(
+            event_id,
+            participant_ids=None,
+            progress_callback=lambda completed, total, step: update_background_task_progress(
+                task_id, completed, total, step
+            )
+        )
+
+        # Update final status
+        if result["success"]:
+            background_tasks[task_id]["status"] = "completed"
+            background_tasks[task_id]["current_step"] = "All certificates generated and emails sent!"
+            background_tasks[task_id]["completed"] = result["summary"]["successful_operations"]
+            background_tasks[task_id]["failed"] = result["summary"]["failed_operations"]
+        else:
+            background_tasks[task_id]["status"] = "failed"
+            background_tasks[task_id]["error"] = result["error"]
+
+    except Exception as e:
+        background_tasks[task_id]["status"] = "failed"
+        background_tasks[task_id]["error"] = str(e)
+        background_tasks[task_id]["current_step"] = f"Error: {str(e)}"
+
+def update_background_task_progress(task_id: str, completed: int, total: int, step: str):
+    """Update progress of background task"""
+    if task_id in background_tasks:
+        background_tasks[task_id]["completed"] = completed
+        background_tasks[task_id]["total_participants"] = total
+        background_tasks[task_id]["current_step"] = step
 
 @app.post("/test_certificate_generation")
 async def test_certificate_generation():
@@ -2997,51 +3232,48 @@ async def get_certificate_status(event_id: int):
         conn.close()
 
 @app.put("/toggle_event_status/{event_id}")
-async def toggle_event_status(event_id: int, request: EventStatusUpdate, session_token: str = None):
-    """Toggle event active status (requires valid organizer session)"""
-    if not session_token:
-        raise HTTPException(status_code=401, detail="Session token required")
-    
-    # Verify session
-    organizer_email = await verify_session_token(session_token)
-    if not organizer_email:
-        raise HTTPException(status_code=401, detail="Invalid or expired session")
-    
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
+async def toggle_event_status(event_id: int, request: EventStatusUpdate):
+    """Toggle event active status"""
+
+    print(f"Toggle request for event {event_id} to status: {request.is_active}")
+
+    # No session verification needed - frontend handles organizer access
+
     try:
         # Check if event exists
-        cursor.execute("SELECT event_name, is_active FROM events WHERE id = ?", (event_id,))
-        event = cursor.fetchone()
-        
-        if not event:
+        event_query = "SELECT event_name, is_active FROM events WHERE id = ?"
+        converted_query, params = convert_sql_for_postgres(event_query, [event_id])
+        result = await db_manager.execute_query(converted_query, params, fetch=True)
+
+        if not result:
             raise HTTPException(status_code=404, detail="Event not found")
-        
-        event_name, current_status = event
-        
+
+        # Handle both PostgreSQL Record and SQLite tuple formats
+        if hasattr(result[0], 'event_name'):
+            event_name = result[0].event_name
+            current_status = result[0].is_active
+        elif isinstance(result[0], tuple):
+            event_name, current_status = result[0]
+        else:
+            event_name = result[0]['event_name']
+            current_status = result[0]['is_active']
+
         # Update event status
-        cursor.execute(
-            "UPDATE events SET is_active = ? WHERE id = ?",
-            (request.is_active, event_id)
-        )
-        
-        conn.commit()
-        
+        update_query = "UPDATE events SET is_active = ? WHERE id = ?"
+        converted_query, params = convert_sql_for_postgres(update_query, [request.is_active, event_id])
+        await db_manager.execute_query(converted_query, params)
+
         return {
             "message": f"Event '{event_name}' status updated successfully",
             "event_id": event_id,
             "event_name": event_name,
             "previous_status": bool(current_status),
-            "new_status": request.is_active,
-            "updated_by": organizer_email
+            "new_status": request.is_active
         }
-        
+
     except Exception as e:
-        conn.rollback()
+        print(f"Error updating event status: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update event status: {str(e)}")
-    finally:
-        conn.close()
 
 # Template Management Endpoints
 @app.get("/templates")

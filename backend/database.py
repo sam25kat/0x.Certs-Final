@@ -9,8 +9,20 @@ import asyncpg
 
 class DatabaseManager:
     def __init__(self):
-        self.database_url = os.getenv("DATABASE_URL", "sqlite:///./certificates.db")
-        self.is_postgres = self.database_url.startswith("postgresql")
+        self._database_url = None
+        self._is_postgres = None
+
+    @property
+    def database_url(self):
+        if self._database_url is None:
+            self._database_url = os.getenv("DATABASE_URL", "sqlite:///./certificates.db")
+        return self._database_url
+
+    @property
+    def is_postgres(self):
+        if self._is_postgres is None:
+            self._is_postgres = self.database_url.startswith("postgresql")
+        return self._is_postgres
         
     async def get_connection(self):
         """Get database connection - supports both SQLite and PostgreSQL"""

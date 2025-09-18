@@ -9,9 +9,9 @@ import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import threading
-from database import db_manager, convert_sql_for_postgres
 
 load_dotenv()
+from database import db_manager, convert_sql_for_postgres
 
 class BulkCertificateProcessor:
     def __init__(self):
@@ -107,14 +107,18 @@ class BulkCertificateProcessor:
             params = [event_id] + participant_ids
             print(f"[DEBUG] CERTIFICATES - Querying selected participants: {participant_ids}")
         else:
-            # Get all participants with PoA tokens (fallback)
+            # Get participants with transferred PoA but no certificates generated yet
             query = """
                 SELECT DISTINCT p.id, p.name, p.email, p.wallet_address, p.team_name, p.poa_token_id
                 FROM participants p
-                WHERE p.event_id = ? AND p.poa_status = 'transferred' AND p.poa_token_id IS NOT NULL AND p.poa_token_id > 0
+                WHERE p.event_id = ?
+                AND p.poa_status = 'transferred'
+                AND p.poa_token_id IS NOT NULL
+                AND p.poa_token_id > 0
+                AND (p.certificate_status IS NULL OR p.certificate_status NOT IN ('completed', 'transferred'))
             """
             params = [event_id]
-            print(f"[DEBUG] CERTIFICATES - Querying all participants for event {event_id}")
+            print(f"[DEBUG] CERTIFICATES - Querying participants who need certificates for event {event_id}")
         
         converted_query, converted_params = convert_sql_for_postgres(query, params)
         participants_result = await db_manager.execute_query(converted_query, converted_params, fetch=True)
@@ -148,8 +152,8 @@ class BulkCertificateProcessor:
             }
         return None
 
-    async def mint_certificate_nft(self, wallet_address, event_id, ipfs_hash):
-        """Mint a certificate NFT"""
+    async def mint_certificate_nft(self, wallet_address, event_id, ipfs_hash, retry_count=0, max_retries=3):
+        """Mint a certificate NFT with retry logic for rate limiting"""
         try:
             # Get account from private key
             account = self.w3.eth.account.from_key(self.private_key)
@@ -293,11 +297,43 @@ class BulkCertificateProcessor:
                     "success": False,
                     "error": f"Transaction failed with status {tx_receipt.status}"
                 }
-            
+
         except Exception as e:
+            error_msg = str(e)
+            print(f"Error minting certificate: {error_msg}")
+
+            # Check if this is a rate limiting or network issue
+            is_retryable = any(keyword in error_msg.lower() for keyword in [
+                'rate limit', 'too many requests', 'connection', 'timeout',
+                'network', 'rpc', 'execution reverted', 'gas'
+            ])
+
+            if is_retryable and retry_count < max_retries:
+                print(f"Retrying mint operation ({retry_count + 1}/{max_retries}) after rate limiting/network error")
+                # Exponential backoff: 2^retry_count * 5 seconds (5, 10, 20 seconds)
+                delay = (2 ** retry_count) * 5
+                print(f"Waiting {delay} seconds before retry...")
+                await asyncio.sleep(delay)
+                return await self.mint_certificate_nft(wallet_address, event_id, ipfs_hash, retry_count + 1, max_retries)
+
+            # Provide more detailed error message
+            detailed_error = f"Certificate minting failed"
+            if 'rate limit' in error_msg.lower() or 'too many requests' in error_msg.lower():
+                detailed_error += " (Rate limited - please try again in a minute)"
+            elif 'gas' in error_msg.lower():
+                detailed_error += " (Gas estimation failed - network congestion)"
+            elif 'revert' in error_msg.lower():
+                detailed_error += " (Transaction reverted - check contract conditions)"
+            elif 'connection' in error_msg.lower() or 'network' in error_msg.lower():
+                detailed_error += " (Network connection issue)"
+            else:
+                detailed_error += f" ({error_msg})"
+
             return {
                 "success": False,
-                "error": str(e)
+                "error": detailed_error,
+                "original_error": error_msg,
+                "retryable": is_retryable and retry_count < max_retries
             }
 
     async def update_certificate_status(self, participant_id, token_id, tx_hash, certificate_path, ipfs_data):
@@ -469,6 +505,8 @@ class BulkCertificateProcessor:
             
             async def process_with_semaphore(participant):
                 async with semaphore:
+                    # Add small delay to prevent rate limiting
+                    await asyncio.sleep(1)  # 1 second delay between operations
                     return await self.process_single_participant(participant, event_details, event_id)
             
             # Create tasks for parallel processing
@@ -536,6 +574,112 @@ class BulkCertificateProcessor:
                 "email_results": email_results
             }
             
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    # NEW SEPARATE FUNCTION - Background processing with progress tracking
+    async def process_bulk_certificates_with_progress(self, event_id, participant_ids=None, progress_callback=None):
+        """Completely separate function for background certificate processing with progress tracking"""
+        try:
+            if progress_callback:
+                progress_callback(0, 0, "Getting PoA holders...")
+
+            # Get event details
+            event_details = await self.get_event_details(event_id)
+            if not event_details:
+                return {"success": False, "error": "Event not found"}
+
+            # Get PoA holders (filtered by participant_ids if provided)
+            participants = await self.get_poa_holders_for_event(event_id, participant_ids=participant_ids)
+            if not participants:
+                error_msg = "No PoA holders found for selected participants" if participant_ids else "No PoA holders found for this event"
+                return {"success": False, "error": error_msg}
+
+            total_participants = len(participants)
+            if progress_callback:
+                progress_callback(0, total_participants, f"Processing {total_participants} participants...")
+
+            results = []
+            email_data = []
+            completed_count = 0
+
+            # Process participants one by one with progress updates
+            for i, participant in enumerate(participants):
+                try:
+                    # Check if task should be cancelled or paused
+                    if progress_callback:
+                        # Check task status through callback mechanism
+                        progress_callback(i, total_participants, f"Processing {participant['name']}...")
+
+                    # Process single participant (reuse existing logic)
+                    result = await self.process_single_participant(participant, event_details, event_id)
+
+                    if result['success']:
+                        results.append({
+                            "participant": result['participant'],
+                            "success": True,
+                            "token_id": result['token_id'],
+                            "tx_hash": result['tx_hash'],
+                            "certificate_path": result['certificate_path'],
+                        })
+
+                        # Add to email data
+                        email_data.append(result['email_data'])
+                        completed_count += 1
+                    else:
+                        results.append({
+                            "participant": result.get('participant', 'Unknown'),
+                            "success": False,
+                            "error": result['error']
+                        })
+
+                    # Small delay to prevent rate limiting
+                    await asyncio.sleep(2)  # 2 second delay between participants
+
+                except Exception as e:
+                    results.append({
+                        "participant": participant.get('name', 'Unknown'),
+                        "success": False,
+                        "error": str(e)
+                    })
+
+            # Send emails if there are successful certificates
+            email_results = []
+            if email_data:
+                if progress_callback:
+                    progress_callback(completed_count, total_participants, "Sending email notifications...")
+
+                # Use existing email service
+                email_results = await asyncio.to_thread(
+                    self.email_service.send_bulk_certificate_emails,
+                    email_data,
+                    event_details['name'],
+                    self.contract_address
+                )
+
+            # Calculate summary
+            successful_operations = len([r for r in results if r.get('success', False)])
+            failed_operations = len([r for r in results if not r.get('success', False)])
+            successful_emails = len([r for r in email_results if r['result']['success']])
+
+            if progress_callback:
+                progress_callback(total_participants, total_participants, "Completed!")
+
+            return {
+                "success": True,
+                "summary": {
+                    "total_participants": total_participants,
+                    "successful_operations": successful_operations,
+                    "failed_operations": failed_operations,
+                    "successful_emails": successful_emails
+                },
+                "certificate_results": results,
+                "email_results": email_results
+            }
+
         except Exception as e:
             return {
                 "success": False,

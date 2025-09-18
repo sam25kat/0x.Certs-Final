@@ -38,7 +38,10 @@
       "WebFetch(domain:reactbits.dev)",
       "Bash(npm ls:*)",
       "Bash(dir:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(for file in test_*.py)",
+      "Bash(do mv \"$file\" testandmisc/)",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []
