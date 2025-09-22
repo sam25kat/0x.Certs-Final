@@ -19,6 +19,14 @@ export default {
       url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 84532
+    },
+    kaiaTestnet: {
+      type: "http",
+      url: process.env.KAIA_TESTNET_RPC_URL || "https://public-en-kairos.node.kaia.io",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      chainId: 1001,
+      gasPrice: 25000000000, // 25 gwei - standard for KAIA
+      gas: 6000000 // 6M gas limit
     }
   }
 };

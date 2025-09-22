@@ -1,8 +1,9 @@
-const hre = require("hardhat");
+import hre from "hardhat";
 
 async function main() {
     const [deployer] = await hre.ethers.getSigners();
-    const contractAddress = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0";
+    // CORRECT contract address from your deployment
+    const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
     
     console.log("🔍 Testing contract at:", contractAddress);
     console.log("Using account:", deployer.address);
@@ -15,25 +16,74 @@ async function main() {
     try {
         console.log("📋 Checking available functions...");
         
-        // Try to call eventNames function (should be safe)
-        const eventName = await contract.eventNames(999);
-        console.log("Event 999 name:", eventName);
+        // Try to call eventNames function with an existing event
+        const eventName1 = await contract.eventNames(5203); // "certtest"
+        console.log("Event 5203 name:", eventName1);
+        
+        const eventName2 = await contract.eventNames(1415); // "Leverage2"
+        console.log("Event 1415 name:", eventName2);
+        
+        // Check a non-existent event
+        const eventName999 = await contract.eventNames(999);
+        console.log("Event 999 name:", eventName999 || "(empty)");
         
     } catch (error) {
         console.error("❌ Error calling contract:", error.message);
     }
     
-    // Test if bulkMintPoA exists by checking contract interface
+    // Test if functions exist by checking contract interface
     const interface = contract.interface;
     const functions = Object.keys(interface.functions);
     
-    console.log("📋 Contract functions:", functions);
+    console.log("\n📋 All Contract functions:");
+    functions.forEach(func => console.log("  -", func));
     
-    const hasBulkMint = functions.includes('bulkMintPoA(address[],uint256)');
+    // Check for specific functions with CORRECT signatures
+    const hasBulkMintPoA = functions.includes('bulkMintPoA(address[],uint256,string)');
     const hasBatchTransfer = functions.includes('batchTransfer(address[],uint256[])');
+    const hasCreateEvent = functions.includes('createEvent(uint256,string)');
+    const hasMintPoA = functions.includes('mintPoA(address,uint256,string)');
     
-    console.log("✅ Has bulkMintPoA:", hasBulkMint);
-    console.log("✅ Has batchTransfer:", hasBatchTransfer);
+    console.log("\n✅ Function availability:");
+    console.log("  bulkMintPoA:", hasBulkMintPoA);
+    console.log("  batchTransfer:", hasBatchTransfer);
+    console.log("  createEvent:", hasCreateEvent);
+    console.log("  mintPoA:", hasMintPoA);
+    
+    // Test actual bulk minting
+    if (hasBulkMintPoA) {
+        try {
+            console.log("\n🧪 Testing bulkMintPoA...");
+            const eventId = 5203; // "certtest"
+            const recipients = [deployer.address]; // Mint to deployer
+            const ipfsHash = "QmTestHash123";
+            
+            // Check if already has PoA
+            const hasPoA = await contract.hasPoAForEvent(deployer.address, eventId);
+            console.log("Deployer already has PoA for event 5203:", hasPoA);
+            
+            if (!hasPoA) {
+                console.log("Attempting to mint PoA...");
+                const tx = await contract.bulkMintPoA(recipients, eventId, ipfsHash);
+                console.log("Transaction sent:", tx.hash);
+                
+                const receipt = await tx.wait();
+                console.log("✅ Transaction confirmed in block:", receipt.blockNumber);
+                
+                // Check if PoA was minted
+                const hasPoAAfter = await contract.hasPoAForEvent(deployer.address, eventId);
+                console.log("Has PoA after minting:", hasPoAAfter);
+            } else {
+                console.log("⚠️ Already has PoA, skipping mint");
+            }
+            
+        } catch (error) {
+            console.error("❌ Error testing bulkMintPoA:", error.message);
+            if (error.reason) {
+                console.error("Reason:", error.reason);
+            }
+        }
+    }
 }
 
 main().catch((error) => {

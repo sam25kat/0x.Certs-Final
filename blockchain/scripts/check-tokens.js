@@ -1,27 +1,66 @@
-import { ethers } from "hardhat";
+import { ethers } from "ethers";
 
 async function main() {
-  const contractAddress = "0x5fbdb2315678afecb367f032d93f642f64180aa3";
-  const contract = await ethers.getContractAt("CertificateNFT", contractAddress);
+  const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
+  const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+
+  const abi = [
+    "function ownerOf(uint256 tokenId) external view returns (address)",
+    "function tokenURI(uint256 tokenId) external view returns (string)",
+    "function isPoA(uint256) external view returns (bool)",
+    "function tokenToEventId(uint256) external view returns (uint256)",
+    "function eventNames(uint256) external view returns (string)"
+  ];
+
+  const contract = new ethers.Contract(contractAddress, abi, provider);
+
+  console.log("🔍 Checking existing tokens...");
+  console.log("Contract:", contractAddress);
+  console.log("");
   
-  console.log("🔍 Checking tokens 0-5...");
+  let foundTokens = 0;
   
-  for (let i = 0; i <= 5; i++) {
+  // Check tokens 0-20 to find existing ones
+  for (let i = 0; i <= 20; i++) {
     try {
       const owner = await contract.ownerOf(i);
-      const uri = await contract.tokenURI(i);
-      console.log(`Token ${i}: Owner=${owner}, URI=${uri}`);
+      foundTokens++;
+      
+      console.log(`✅ Token ${i}:`);
+      console.log(`   Owner: ${owner}`);
+      
+      try {
+        const uri = await contract.tokenURI(i);
+        console.log(`   URI: ${uri}`);
+      } catch {
+        console.log("   URI: (error reading URI)");
+      }
+      
+      try {
+        const isPoa = await contract.isPoA(i);
+        const eventId = await contract.tokenToEventId(i);
+        const eventName = await contract.eventNames(eventId);
+        
+        console.log(`   Type: ${isPoa ? "PoA" : "Certificate"}`);
+        console.log(`   Event: ${eventId} (${eventName})`);
+      } catch {
+        console.log("   Type: (error reading type)");
+      }
+      
+      console.log("");
+      
     } catch (error) {
-      console.log(`Token ${i}: Does not exist or error:`, error.message);
+      // Token doesn't exist - this is normal
+      if (i < 5 || foundTokens === 0) {
+        console.log(`❌ Token ${i}: Does not exist`);
+      }
     }
   }
   
-  // Check total supply
-  try {
-    const totalSupply = await contract.totalSupply();
-    console.log(`\nTotal Supply: ${totalSupply}`);
-  } catch (error) {
-    console.log("Total supply not available");
+  if (foundTokens === 0) {
+    console.log("ℹ️  No tokens found. Contract might be empty or not deployed.");
+  } else {
+    console.log(`📊 Summary: Found ${foundTokens} existing tokens`);
   }
 }
 
