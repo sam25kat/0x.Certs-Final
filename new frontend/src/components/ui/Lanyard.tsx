@@ -127,7 +127,7 @@ export default function Lanyard({
                 </div>
                 <div className="flex justify-between items-center p-2 bg-gray-800/60 rounded-md backdrop-blur-sm border border-green-500/30">
                   <span className="opacity-75 text-gray-300">Network:</span>
-                  <span className="font-semibold text-green-400">Base Sepolia</span>
+                  <span className="font-semibold text-green-400">Kaia Testnet</span>
                 </div>
               </div>
               

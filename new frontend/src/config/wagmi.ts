@@ -1,19 +1,43 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
-import { baseSepolia } from 'wagmi/chains';
 import { http } from 'wagmi';
+import { defineChain } from 'viem';
+
+// Define Kaia Testnet (Kairos) chain
+const kaiaTestnet = defineChain({
+  id: 1001,
+  name: 'Kaia Testnet Kairos',
+  network: 'kaia-testnet',
+  nativeCurrency: {
+    decimals: 18,
+    name: 'KAIA',
+    symbol: 'KAIA',
+  },
+  rpcUrls: {
+    default: {
+      http: ['https://public-en-kairos.node.kaia.io'],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: 'KaiaScan',
+      url: 'https://kairos.kaiascan.io',
+    },
+  },
+  testnet: true,
+});
 
 export const config = getDefaultConfig({
   appName: '0x.Certs',
   projectId: 'YOUR_PROJECT_ID', // Get from WalletConnect if needed
-  chains: [baseSepolia],
+  chains: [kaiaTestnet],
   transports: {
-    [baseSepolia.id]: http('https://sepolia.base.org'),
+    [kaiaTestnet.id]: http('https://public-en-kairos.node.kaia.io'),
   },
   ssr: false, // Since we're not using SSR
 });
 
 // Contract configuration
-export const CONTRACT_ADDRESS = '0xa51A70d9C18FFED4fC4214dedEC05E8C988900d0' as const;
+export const CONTRACT_ADDRESS = '0xf55562677316d7620d5ebee2d9691a7ce3485740' as const;
 
 export const CONTRACT_ABI = [
   {

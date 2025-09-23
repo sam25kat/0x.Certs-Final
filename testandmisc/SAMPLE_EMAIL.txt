@@ -12,7 +12,7 @@ Certificate Type: NFT (Non-Fungible Token)
 
 NFT Information
 
-Contract Address: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+Contract Address: 0xf55562677316d7620d5ebee2d9691a7ce3485740
 Token ID: 4
 Blockchain: Ethereum
 
@@ -23,7 +23,7 @@ For MetaMask Users:
 1. Open your MetaMask wallet
 2. Navigate to the "NFTs" tab
 3. Click "Import NFT"
-4. Enter Contract Address: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+4. Enter Contract Address: 0xf55562677316d7620d5ebee2d9691a7ce3485740
 5. Enter Token ID: 4
 6. Click "Import"
 

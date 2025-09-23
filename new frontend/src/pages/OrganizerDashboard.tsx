@@ -1376,6 +1376,40 @@ export default function OrganizerDashboard() {
     }
   };
 
+  // Handle resend email
+  const handleResendEmail = async (participantId: number, participantName: string, participantEmail: string) => {
+    try {
+      setLoadingStates(prev => ({ ...prev, [`resend-${participantId}`]: true }));
+
+      const response = await fetch(`${API_BASE_URL}/resend_certificate_email/${participantId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to resend email');
+      }
+
+      toast({
+        title: "Email resent successfully!",
+        description: `Certificate email sent to ${participantName} (${participantEmail})`,
+        duration: 5000,
+      });
+
+    } catch (error) {
+      console.error('Resend email error:', error);
+      toast({
+        title: "Failed to resend email",
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingStates(prev => ({ ...prev, [`resend-${participantId}`]: false }));
+    }
+  };
+
   // Check certificate status
   const handleCheckCertificateStatus = async (eventId: number) => {
     if (!session?.sessionToken) {
@@ -1677,6 +1711,7 @@ export default function OrganizerDashboard() {
                   <th className="px-4 py-2 text-left text-sm font-medium">Wallet</th>
                   <th className="px-4 py-2 text-left text-sm font-medium">PoA Status</th>
                   <th className="px-4 py-2 text-left text-sm font-medium">Cert Status</th>
+                  <th className="px-4 py-2 text-left text-sm font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -1725,6 +1760,26 @@ export default function OrganizerDashboard() {
                       </td>
                       <td className="px-4 py-2">{getPoABadge()}</td>
                       <td className="px-4 py-2">{getCertBadge()}</td>
+                      <td className="px-4 py-2">
+                        {(participant.certificate_status === 'completed' || participant.certificate_status === 'transferred') && participant.certificate_token_id ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleResendEmail(participant.id, participant.name, participant.email);
+                            }}
+                            disabled={loadingStates[`resend-${participant.id}`]}
+                            className="h-7 px-2 text-xs"
+                            title="Resend certificate email"
+                          >
+                            <Mail className="h-3 w-3 mr-1" />
+                            {loadingStates[`resend-${participant.id}`] ? 'Sending...' : 'Resend'}
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No certificate</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}

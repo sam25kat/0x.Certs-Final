@@ -34,11 +34,11 @@ class EmailService:
         with open(self.tracking_file, 'a') as f:
             f.write(f"{email_key}\n")
 
-    def send_certificate_email(self, to_email, participant_name, event_name, certificate_path, contract_address, token_id, poa_token_id=None):
+    def send_certificate_email(self, to_email, participant_name, event_name, certificate_path, contract_address, token_id, poa_token_id=None, force_resend=False):
         """Send certificate email with attachment and wallet instructions"""
         try:
-            # Check if email was already sent
-            if self._is_email_already_sent(to_email, participant_name, event_name, token_id):
+            # Check if email was already sent (unless force_resend is True)
+            if not force_resend and self._is_email_already_sent(to_email, participant_name, event_name, token_id):
                 print(f"Email already sent to {to_email} for {event_name} token {token_id}. Skipping.")
                 return {"success": True, "message": f"Email already sent to {to_email} (duplicate prevented)"}
             
@@ -289,8 +289,8 @@ For assistance or inquiries, please contact the event organizers.
             # Attach HTML version only to avoid duplicate emails
             msg.attach(MIMEText(html_body, 'html'))
 
-            # Attach certificate file
-            if os.path.exists(certificate_path):
+            # Attach certificate file (if provided)
+            if certificate_path and os.path.exists(certificate_path):
                 with open(certificate_path, "rb") as attachment:
                     # Use proper MIME type for JPEG images
                     part = MIMEBase('image', 'jpeg')
@@ -306,8 +306,10 @@ For assistance or inquiries, please contact the event organizers.
                     part.add_header('Content-ID', f'<{filename}>')
                     msg.attach(part)
                     print(f"Certificate attached: {certificate_path} ({os.path.getsize(certificate_path)} bytes)")
-            else:
+            elif certificate_path:
                 print(f"Certificate file not found: {certificate_path}")
+            else:
+                print("No certificate attachment for resend email")
 
             # Send email
             print(f"Sending email to: {to_email}")
@@ -373,7 +375,7 @@ if __name__ == "__main__":
         participant_name="Test User",
         event_name="Test Event",
         certificate_path="certificates/test_certificate.jpg",
-        contract_address="0x5FbDB2315678afecb367f032d93F642f64180aa3",
+        contract_address="0xF55562677316D7620d5eBeE2D9691a7CE3485740",
         token_id="1"
     )
     

@@ -21,7 +21,7 @@ print(f"Participants: {len(participants_data)}")
 results = email_service.send_bulk_certificate_emails(
     participants_data=participants_data,
     event_name="QWERTY999",
-    contract_address="0x5FbDB2315678afecb367f032d93F642f64180aa3"
+    contract_address="0xf55562677316d7620d5ebee2d9691a7ce3485740"
 )
 
 print("\nBulk email results:")
@@ -32,7 +32,7 @@ print("\nTesting duplicate prevention - sending same batch again:")
 results2 = email_service.send_bulk_certificate_emails(
     participants_data=participants_data,
     event_name="QWERTY999", 
-    contract_address="0x5FbDB2315678afecb367f032d93F642f64180aa3"
+    contract_address="0xf55562677316d7620d5ebee2d9691a7ce3485740"
 )
 
 print("Second batch results:")

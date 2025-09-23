@@ -4,16 +4,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertTriangle, Network, Plus } from 'lucide-react';
 
-const BASE_SEPOLIA_NETWORK = {
-  chainId: '0x14A34', // 84532 in hex
-  chainName: 'Base Sepolia Testnet',
+const KAIA_TESTNET_NETWORK = {
+  chainId: '0x3E9', // 1001 in hex
+  chainName: 'Kaia Testnet Kairos',
   nativeCurrency: {
-    name: 'Ether',
-    symbol: 'ETH',
+    name: 'KAIA',
+    symbol: 'KAIA',
     decimals: 18,
   },
-  rpcUrls: ['https://sepolia.base.org'],
-  blockExplorerUrls: ['https://sepolia.basescan.org'],
+  rpcUrls: ['https://public-en-kairos.node.kaia.io'],
+  blockExplorerUrls: ['https://kairos.kaiascan.io'],
 };
 
 export function NetworkSwitcher() {
@@ -21,9 +21,9 @@ export function NetworkSwitcher() {
   const chainId = useChainId();
   const { switchChain, isPending } = useSwitchChain();
   
-  const isCorrectNetwork = chainId === 84532;
+  const isCorrectNetwork = chainId === 1001;
 
-  const addBaseSepolia = async () => {
+  const addKaiaTestnet = async () => {
     if (!window.ethereum) {
       alert('Please install MetaMask or another Web3 wallet');
       return;
@@ -33,7 +33,7 @@ export function NetworkSwitcher() {
       // Try to switch to the network first
       await window.ethereum.request({
         method: 'wallet_switchEthereumChain',
-        params: [{ chainId: BASE_SEPOLIA_NETWORK.chainId }],
+        params: [{ chainId: KAIA_TESTNET_NETWORK.chainId }],
       });
     } catch (switchError: unknown) {
       // If network doesn't exist, add it
@@ -41,11 +41,11 @@ export function NetworkSwitcher() {
         try {
           await window.ethereum.request({
             method: 'wallet_addEthereumChain',
-            params: [BASE_SEPOLIA_NETWORK],
+            params: [KAIA_TESTNET_NETWORK],
           });
         } catch (addError) {
           console.error('Failed to add network:', addError);
-          alert('Failed to add Base Sepolia network. Please add it manually.');
+          alert('Failed to add Kaia Testnet network. Please add it manually.');
         }
       } else {
         console.error('Failed to switch network:', switchError);
@@ -53,11 +53,11 @@ export function NetworkSwitcher() {
     }
   };
 
-  const switchToBaseSepolia = () => {
+  const switchToKaiaTestnet = () => {
     if (switchChain) {
-      switchChain({ chainId: 84532 });
+      switchChain({ chainId: 1001 });
     } else {
-      addBaseSepolia();
+      addKaiaTestnet();
     }
   };
 
@@ -72,11 +72,11 @@ export function NetworkSwitcher() {
         <AlertDescription className="text-yellow-800">
           <div className="flex items-center justify-between gap-4">
             <div className="flex-1">
-              <strong>Wrong network detected!</strong> Please switch to Base Sepolia Testnet (Chain ID: 84532) to use this application.
+              <strong>Wrong network detected!</strong> Please switch to Kaia Testnet Kairos (Chain ID: 1001) to use this application.
             </div>
             <div className="flex gap-2">
               <Button
-                onClick={switchToBaseSepolia}
+                onClick={switchToKaiaTestnet}
                 disabled={isPending}
                 variant="outline"
                 size="sm"
@@ -92,7 +92,7 @@ export function NetworkSwitcher() {
                 )}
               </Button>
               <Button
-                onClick={addBaseSepolia}
+                onClick={addKaiaTestnet}
                 variant="outline"
                 size="sm"
                 className="shrink-0"
@@ -129,17 +129,17 @@ export function NetworkInstructions() {
         </div>
         
         <div className="bg-muted p-4 rounded-lg space-y-2 text-sm font-mono">
-          <div><strong>Network Name:</strong> Base Sepolia Testnet</div>
-          <div><strong>RPC URL:</strong> https://sepolia.base.org</div>
-          <div><strong>Chain ID:</strong> 84532</div>
-          <div><strong>Currency Symbol:</strong> ETH</div>
-          <div><strong>Block Explorer:</strong> https://sepolia.basescan.org</div>
+          <div><strong>Network Name:</strong> Kaia Testnet Kairos</div>
+          <div><strong>RPC URL:</strong> https://public-en-kairos.node.kaia.io</div>
+          <div><strong>Chain ID:</strong> 1001</div>
+          <div><strong>Currency Symbol:</strong> KAIA</div>
+          <div><strong>Block Explorer:</strong> https://kairos.kaiascan.io</div>
         </div>
         
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            Base Sepolia is a testnet. You can get testnet ETH from the Base Sepolia faucet.
+            Kaia Kairos is a testnet. You can get testnet KAIA from the Kaia faucet.
           </AlertDescription>
         </Alert>
       </CardContent>

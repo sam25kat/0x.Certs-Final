@@ -227,7 +227,7 @@ export default function ParticipantDashboard() {
       tokenId: type === 'poa' ? nftStatus.poa_token_id : nftStatus.certificate_token_id,
       status: type === 'poa' ? nftStatus.poa_status : nftStatus.certificate_status,
       transferredAt: type === 'poa' ? nftStatus.poa_transferred_at : nftStatus.certificate_transferred_at,
-      contractAddress: "0xa51A70d9C18FFED4fC4214dedEC05E8C988900d0" // Actual contract address for both PoA and Certificate
+      contractAddress: "0xf55562677316d7620d5ebee2d9691a7ce3485740" // Actual contract address for both PoA and Certificate
     });
     setShowInfoModal(true);
   };
@@ -238,7 +238,7 @@ export default function ParticipantDashboard() {
         onClick={() => setShowNetworkConfig(!showNetworkConfig)}
         className="w-full flex items-center justify-between p-3 text-left text-white hover:bg-green-600/10 transition-colors"
       >
-        <span className="text-sm font-medium">Base Sepolia Network Configuration</span>
+        <span className="text-sm font-medium">Kaia Testnet Network Configuration</span>
         {showNetworkConfig ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
       </button>
       
@@ -247,27 +247,27 @@ export default function ParticipantDashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div>
               <div className="text-green-400 font-medium mb-1">Network Name:</div>
-              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">Base Sepolia</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">Kaia Testnet Kairos</div>
             </div>
             <div>
               <div className="text-green-400 font-medium mb-1">Chain ID:</div>
-              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">84532</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">1001</div>
             </div>
             <div>
               <div className="text-green-400 font-medium mb-1">RPC URL:</div>
-              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded break-all">https://sepolia.base.org</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded break-all">https://public-en-kairos.node.kaia.io</div>
             </div>
             <div>
               <div className="text-green-400 font-medium mb-1">Block Explorer:</div>
-              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded break-all">https://sepolia.basescan.org</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded break-all">https://kairos.kaiascan.io</div>
             </div>
             <div>
               <div className="text-green-400 font-medium mb-1">Currency Symbol:</div>
-              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">ETH</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">KAIA</div>
             </div>
             <div>
               <div className="text-green-400 font-medium mb-1">Currency Name:</div>
-              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">Ethereum</div>
+              <div className="text-gray-300 font-mono bg-gray-900/50 p-2 rounded">KAIA</div>
             </div>
           </div>
           <div className="mt-3 p-3 bg-green-600/10 rounded border border-green-600/20">
@@ -275,7 +275,7 @@ export default function ParticipantDashboard() {
             <div className="text-gray-300 text-xs space-y-1">
               <div>1. Open MetaMask → Settings → Networks → Add Network</div>
               <div>2. Fill in the details above</div>
-              <div>3. Save and switch to Base Sepolia network</div>
+              <div>3. Save and switch to Kaia Testnet network</div>
             </div>
           </div>
         </div>
@@ -491,7 +491,7 @@ export default function ParticipantDashboard() {
                         {selectedInfo.status !== 'not_eligible' && (
                           <>
                             <div className="grid grid-cols-2 gap-2 text-xs text-gray-300">
-                              <div><span className="text-green-400">Blockchain:</span> Base Sepolia</div>
+                              <div><span className="text-green-400">Blockchain:</span> Kaia Testnet</div>
                               <div><span className="text-green-400">Type:</span> ERC-721 NFT</div>
                             </div>
                             
@@ -520,7 +520,7 @@ export default function ParticipantDashboard() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                       <div className="bg-gray-800/30 p-3 rounded flex items-center gap-2">
                         <span className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">1</span>
-                        <span className="text-gray-200">Configure Base Sepolia network</span>
+                        <span className="text-gray-200">Configure Kaia Testnet network</span>
                       </div>
                       <div className="bg-gray-800/30 p-3 rounded flex items-center gap-2">
                         <span className="bg-blue-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">2</span>

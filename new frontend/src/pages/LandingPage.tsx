@@ -240,7 +240,7 @@ export default function LandingPage() {
                     </div>
                     <div>
                       <CardTitle className="text-lg text-white">Network Configuration</CardTitle>
-                      <p className="text-gray-400 text-sm">Configure your wallet for Base Sepolia network</p>
+                      <p className="text-gray-400 text-sm">Configure your wallet for Kaia Testnet network</p>
                     </div>
                   </div>
                   <Button
@@ -260,11 +260,11 @@ export default function LandingPage() {
                       <div>
                         <label className="text-primary font-medium text-sm">Network Name</label>
                         <div className="flex items-center gap-2 mt-1">
-                          <code className="flex-1 p-2 bg-muted/20 rounded text-gray-300 font-mono text-sm">Base Sepolia</code>
+                          <code className="flex-1 p-2 bg-muted/20 rounded text-gray-300 font-mono text-sm">Kaia Testnet Kairos</code>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => copyToClipboard('Base Sepolia', 'name')}
+                            onClick={() => copyToClipboard('Kaia Testnet Kairos', 'name')}
                             className="text-gray-400 hover:text-white"
                           >
                             {copiedAddress === 'name' ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -274,11 +274,11 @@ export default function LandingPage() {
                       <div>
                         <label className="text-primary font-medium text-sm">Chain ID</label>
                         <div className="flex items-center gap-2 mt-1">
-                          <code className="flex-1 p-2 bg-muted/20 rounded text-gray-300 font-mono text-sm">84532</code>
+                          <code className="flex-1 p-2 bg-muted/20 rounded text-gray-300 font-mono text-sm">1001</code>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => copyToClipboard('84532', 'chainId')}
+                            onClick={() => copyToClipboard('1001', 'chainId')}
                             className="text-gray-400 hover:text-white"
                           >
                             {copiedAddress === 'chainId' ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -304,11 +304,11 @@ export default function LandingPage() {
                       <div>
                         <label className="text-primary font-medium text-sm">RPC URL</label>
                         <div className="flex items-center gap-2 mt-1">
-                          <code className="flex-1 p-2 bg-muted/20 rounded text-gray-300 font-mono text-sm break-all">https://sepolia.base.org</code>
+                          <code className="flex-1 p-2 bg-muted/20 rounded text-gray-300 font-mono text-sm break-all">https://public-en-kairos.node.kaia.io</code>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => copyToClipboard('https://sepolia.base.org', 'rpc')}
+                            onClick={() => copyToClipboard('https://public-en-kairos.node.kaia.io', 'rpc')}
                             className="text-gray-400 hover:text-white"
                           >
                             {copiedAddress === 'rpc' ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -339,7 +339,7 @@ export default function LandingPage() {
                         <ol className="text-gray-300 text-sm space-y-1 list-decimal list-inside">
                           <li>Open MetaMask → Settings → Networks → Add Network</li>
                           <li>Fill in the network details above</li>
-                          <li>Save and switch to Base Sepolia network</li>
+                          <li>Save and switch to Kaia Testnet network</li>
                           <li>You're ready to mint NFT certificates!</li>
                         </ol>
                       </div>
@@ -461,12 +461,12 @@ export default function LandingPage() {
                       <label className="text-primary font-medium text-sm mb-2 block">Contract Address</label>
                       <div className="flex items-center gap-2">
                         <code className="flex-1 p-3 bg-muted/20 rounded text-gray-300 font-mono text-sm break-all">
-                          0xa51A70d9C18FFED4fC4214dedEC05E8C988900d0
+                          0xf55562677316d7620d5ebee2d9691a7ce3485740
                         </code>
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => copyToClipboard('0xa51A70d9C18FFED4fC4214dedEC05E8C988900d0', 'contract')}
+                          onClick={() => copyToClipboard('0xf55562677316d7620d5ebee2d9691a7ce3485740', 'contract')}
                           className="text-gray-400 hover:text-white"
                         >
                           {copiedAddress === 'contract' ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -523,7 +523,7 @@ export default function LandingPage() {
                           <p className="text-yellow-400 font-medium text-sm mb-2">Important Notes</p>
                           <ul className="text-gray-300 text-sm space-y-1 list-disc list-inside">
                             <li>You'll need your specific Token ID (Find it in the email)</li>
-                            <li>Make sure you're connected to the Base Sepolia network</li>
+                            <li>Make sure you're connected to the Kaia Testnet network</li>
                             <li>The same contract address works for both PoA and Certificate NFTs</li>
                             <li>Your NFTs will only be visible after they've been transferred to your wallet</li>
                           </ul>

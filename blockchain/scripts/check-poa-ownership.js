@@ -6,7 +6,7 @@ async function main() {
     // Use localhost configuration
     const RPC = "http://127.0.0.1:8545";
     const provider = new ethers.JsonRpcProvider(RPC);
-    const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3"; // Localhost contract
+    const contractAddress = "0xf55562677316d7620d5ebee2d9691a7ce3485740"; // Localhost contract
     
     console.log("🔍 Checking PoA ownership for certificate minting...");
     console.log("📄 Contract:", contractAddress);

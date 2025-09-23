@@ -82,7 +82,7 @@ npx hardhat run scripts/deploy.js --network localhost
 ```
 **Copy the contract address!** Output shows:
 ```
-CertificateNFT deployed to: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+CertificateNFT deployed to: 0xf55562677316d7620d5ebee2d9691a7ce3485740
 Save this address to your .env file as CONTRACT_ADDRESS
 ```
 
@@ -92,7 +92,7 @@ cd backend
 pip install -r requirements.txt
 
 # Create .env file with contract address:
-echo "CONTRACT_ADDRESS=0x5FbDB2315678afecb367f032d93F642f64180aa3" > .env
+echo "CONTRACT_ADDRESS=0xf55562677316d7620d5ebee2d9691a7ce3485740" > .env
 echo "RPC_URL=http://127.0.0.1:8545/" >> .env
 echo "PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" >> .env
 
@@ -110,7 +110,7 @@ npm start
 **Update Contract Address in Frontend:**
 Edit `frontend/src/wagmi.ts` line 41:
 ```typescript
-export const CONTRACT_ADDRESS = '0x5FbDB2315678afecb367f032d93F642f64180aa3' as const;
+export const CONTRACT_ADDRESS = '0xf55562677316d7620d5ebee2d9691a7ce3485740' as const;
 ```
 
 ## 🎯 Testing the Complete Flow

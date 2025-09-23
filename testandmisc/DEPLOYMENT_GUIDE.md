@@ -53,14 +53,14 @@ CONTRACT_ADDRESS=your_new_contract_address_here
 **File**: `backend/.env`
 ```bash
 CONTRACT_ADDRESS=your_new_contract_address_here
-RPC_URL=https://sepolia.base.org  # Update if using Base Sepolia
+RPC_URL=https://public-en-kairos.node.kaia.io  # Update if using Base Sepolia
 ```
 
 ### 3.3 Root Configuration
 **File**: `.env` (project root)
 ```bash
 CONTRACT_ADDRESS=your_new_contract_address_here
-RPC_URL=https://sepolia.base.org
+RPC_URL=https://public-en-kairos.node.kaia.io
 ```
 
 ### 3.4 New Frontend Configuration
@@ -80,7 +80,7 @@ export const config = getDefaultConfig({
   projectId: 'YOUR_PROJECT_ID',
   chains: [baseSepolia], // Add Base Sepolia
   transports: {
-    [baseSepolia.id]: http('https://sepolia.base.org'),
+    [baseSepolia.id]: http('https://public-en-kairos.node.kaia.io'),
   },
   ssr: false,
 });
@@ -94,7 +94,7 @@ Update the contract address and add Base Sepolia configuration similar to the ne
 ## Step 4: Network Configuration Updates
 
 ### 4.1 Update RPC URLs
-Replace localhost RPC URLs with Base Sepolia RPC URL (`https://sepolia.base.org`) in:
+Replace localhost RPC URLs with Base Sepolia RPC URL (`https://public-en-kairos.node.kaia.io`) in:
 - `backend/.env`
 - `.env` (root)
 - Frontend configuration files
@@ -147,7 +147,7 @@ npx hardhat run scripts/deploy-base-sepolia.js --network baseSepolia
 
 - **Network Name**: Base Sepolia
 - **Chain ID**: 84532
-- **RPC URL**: https://sepolia.base.org
+- **RPC URL**: https://public-en-kairos.node.kaia.io
 - **Block Explorer**: https://sepolia.basescan.org
 - **Faucet**: https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet
 

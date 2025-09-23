@@ -7,7 +7,7 @@ async function main() {
     const RPC = "http://127.0.0.1:8545"; // Force localhost
     const provider = new ethers.JsonRpcProvider(RPC);
 
-    const CONTRACT = process.env.CONTRACT_ADDRESS || "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+    const CONTRACT = process.env.CONTRACT_ADDRESS || "0xf55562677316d7620d5ebee2d9691a7ce3485740";
     
     // USE HARDHAT TEST ACCOUNTS WITH ETH BALANCE
     const HARDHAT_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"; // Account #0

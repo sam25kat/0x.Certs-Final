@@ -3,7 +3,7 @@ import hre from "hardhat";
 async function main() {
     const [deployer] = await hre.ethers.getSigners();
     // CORRECT contract address from your deployment
-    const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+    const contractAddress = "0xf55562677316d7620d5ebee2d9691a7ce3485740";
     
     console.log("🔍 Testing contract at:", contractAddress);
     console.log("Using account:", deployer.address);

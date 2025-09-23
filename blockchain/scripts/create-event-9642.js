@@ -14,8 +14,8 @@ async function main() {
     process.exit(1);
   }
 
-  const rpcUrl = "https://sepolia.base.org";
-  const contractAddress = '0xa51A70d9C18FFED4fC4214dedEC05E8C988900d0';
+  const rpcUrl = "https://public-en-kairos.node.kaia.io";
+  const contractAddress = '0xf55562677316d7620d5ebee2d9691a7ce3485740';
   
   // Create provider and wallet
   const provider = new ethers.JsonRpcProvider(rpcUrl);

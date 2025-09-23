@@ -16,7 +16,7 @@ export default {
     },
     baseSepolia: {
       type: "http",
-      url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
+      url: process.env.BASE_SEPOLIA_RPC_URL || "https://public-en-kairos.node.kaia.io",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
       chainId: 84532
     },

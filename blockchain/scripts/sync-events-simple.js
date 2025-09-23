@@ -15,7 +15,7 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const CONTRACT_ADDRESS = "0xcA3f476842353291084948BB162b5e54fe2c7D45";
 const DB_PATH = path.join(__dirname, "../../backend/certificates.db");
-const RPC_URL = "https://sepolia.base.org";
+const RPC_URL = "https://public-en-kairos.node.kaia.io";
 
 // Contract ABI (only the functions we need)
 const CONTRACT_ABI = [

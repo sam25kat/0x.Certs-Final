@@ -21,7 +21,7 @@ def test_email_with_poa_token():
         participant_name="Test Participant",
         event_name="Test Event",
         certificate_path="test_cert.jpg",  # Mock path
-        contract_address="0x5FbDB2315678afecb367f032d93F642f64180aa3",
+        contract_address="0xf55562677316d7620d5ebee2d9691a7ce3485740",
         token_id="123",
         poa_token_id="456"  # This should appear in the email
     )

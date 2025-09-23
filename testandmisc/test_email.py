@@ -17,7 +17,7 @@ result = email_service.send_certificate_email(
     participant_name="Sameer Katte", 
     event_name="QWERTY999",
     certificate_path=cert_path,
-    contract_address="0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    contract_address="0xf55562677316d7620d5ebee2d9691a7ce3485740",
     token_id="6"
 )
 

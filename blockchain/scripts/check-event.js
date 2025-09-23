@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 
 async function main() {
     const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
-    const contractAddress = "0x5fbdb2315678afecb367f032d93f642f64180aa3";
+    const contractAddress = "0xf55562677316d7620d5ebee2d9691a7ce3485740";
     
     const contractABI = [
         "function eventNames(uint256) external view returns (string memory)",

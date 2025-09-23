@@ -207,7 +207,7 @@ class BulkCertificateProcessor:
                 event_id,
                 ipfs_hash
             ).build_transaction({
-                'chainId': 84532,  # Base Sepolia testnet
+                'chainId': 1001,  # Kaia Testnet Kairos
                 'gas': int(gas_estimate * 1.1),  # Only 10% buffer instead of 2x
                 'gasPrice': int(self.w3.eth.gas_price * 1.1),  # Use network gas price + 10%
                 'nonce': nonce,

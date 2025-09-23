@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 
 import aiosqlite
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -30,6 +30,7 @@ from PIL import Image, ImageDraw, ImageFont
 load_dotenv()
 from bulk_certificate_processor import BulkCertificateProcessor
 from database import db_manager
+from email_service import EmailService
 
 # Global database pool
 db_pool = None
@@ -195,7 +196,7 @@ def update_poa_token_metadata(token_id, metadata_hash):
         transaction = contract.functions.updateMetadata(token_id, metadata_hash).build_transaction({
             'chainId': w3.eth.chain_id,
             'gas': gas_estimate + 50000,
-            'gasPrice': w3.to_wei('1', 'gwei'),
+            'gasPrice': w3.eth.gas_price,
             'nonce': w3.eth.get_transaction_count(account.address),
         })
         
@@ -774,7 +775,7 @@ def mint_poa_nft(wallet_address: str, event_id: int):
         transaction = contract.functions.mintPoA(wallet_address, event_id).build_transaction({
             'chainId': network,
             'gas': gas_estimate + 50000,  # Add buffer
-            'gasPrice': w3.to_wei('1', 'gwei'),  # Lower gas price for localhost
+            'gasPrice': w3.eth.gas_price,  # Lower gas price for localhost
             'nonce': w3.eth.get_transaction_count(account.address),
         })
         
@@ -917,7 +918,7 @@ def mint_certificate_nft(wallet_address: str, event_id: int, ipfs_hash: str):
         transaction = contract.functions.mintCertificate(wallet_address, event_id, ipfs_hash).build_transaction({
             'chainId': network,
             'gas': gas_estimate + 50000,  # Add buffer
-            'gasPrice': w3.to_wei('1', 'gwei'),  # Lower gas price for localhost
+            'gasPrice': w3.eth.gas_price,  # Lower gas price for localhost
             'nonce': w3.eth.get_transaction_count(account.address),
         })
         
@@ -1411,7 +1412,7 @@ async def create_event(event: EventCreate, organizer_id: int = 1):
                 transaction = contract.functions.createEvent(event_id, event.event_name).build_transaction({
                     'chainId': network,
                     'gas': gas_estimate + 20000,  # Smaller buffer
-                    'gasPrice': w3.to_wei('0.1', 'gwei'),  # Much lower gas price for Base Sepolia
+                    'gasPrice': w3.eth.gas_price,  # Use network gas price for Kaia
                     'nonce': w3.eth.get_transaction_count(account.address),
                 })
                 
@@ -3306,7 +3307,7 @@ async def upload_template(file: UploadFile = File(...), session_token: str = Non
     """Upload a new certificate template"""
     
     # Verify organizer session
-    organizer_email = verify_organizer_session(session_token)
+    organizer_email = await verify_session_token(session_token)
     if not organizer_email:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     
@@ -3358,7 +3359,7 @@ async def delete_template(filename: str, session_token: str = None):
     """Delete a certificate template"""
     
     # Verify organizer session
-    organizer_email = verify_organizer_session(session_token)
+    organizer_email = await verify_session_token(session_token)
     if not organizer_email:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     
@@ -3402,6 +3403,105 @@ async def delete_template(filename: str, session_token: str = None):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete template: {str(e)}")
+
+@app.post("/resend_certificate_email/{participant_id}")
+async def resend_certificate_email(participant_id: int):
+    """Resend certificate email to a specific participant"""
+
+    try:
+        # Get participant details with event information for certificate generation
+        participant_sql = """SELECT p.name, p.email, p.wallet_address, p.certificate_status,
+                                  p.certificate_token_id, p.certificate_ipfs, p.poa_token_id,
+                                  e.event_name, e.id as event_id, p.team_name,
+                                  e.event_date, e.sponsors, e.certificate_template
+                           FROM participants p
+                           JOIN events e ON p.event_id = e.id
+                           WHERE p.id = ?"""
+        converted_sql, params = convert_sql_for_postgres(participant_sql, [participant_id])
+        result = await db_manager.execute_query(converted_sql, params, fetch=True)
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Participant not found")
+
+        participant = result[0]
+
+        # Handle both dict and tuple formats
+        if isinstance(participant, dict):
+            name = participant['name']
+            email = participant['email']
+            wallet_address = participant['wallet_address']
+            certificate_status = participant['certificate_status']
+            certificate_token_id = participant['certificate_token_id']
+            certificate_ipfs = participant['certificate_ipfs']
+            poa_token_id = participant['poa_token_id']
+            event_name = participant['event_name']
+            event_id = participant['event_id']
+            team_name = participant.get('team_name', '')
+            event_date = participant.get('event_date', '')
+            sponsors = participant.get('sponsors', '')
+            certificate_template = participant.get('certificate_template', '')
+        else:
+            name, email, wallet_address, certificate_status, certificate_token_id, certificate_ipfs, poa_token_id, event_name, event_id, team_name, event_date, sponsors, certificate_template = participant
+
+        # Check if participant has a generated certificate
+        if certificate_status not in ['completed', 'transferred'] or not certificate_token_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Participant {name} does not have a generated certificate yet. Current status: {certificate_status}"
+            )
+
+        # Use the exact same certificate generation logic as BulkCertificateProcessor
+        # Import and use the CertificateGenerator class directly
+        from certificate_generator import CertificateGenerator
+
+        cert_generator = CertificateGenerator()
+
+        # Generate certificate using exact same logic as BulkCertificateProcessor
+        cert_result = cert_generator.generate_certificate(
+            participant_name=name,
+            event_name=event_name,
+            event_date=str(event_date) or "",
+            participant_email=email,
+            team_name=team_name or "",
+            template_filename=certificate_template  # Use exact same parameter as BulkProcessor
+        )
+
+        if not cert_result['success']:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Certificate generation failed: {cert_result.get('error', 'Unknown error')}"
+            )
+
+        # Get the certificate file path from the result (same as BulkCertificateProcessor)
+        certificate_path = cert_result['file_path']
+
+        # Use the proper email service for sending with attachment (exact same as BulkProcessor)
+        email_service = EmailService()
+        email_result = email_service.send_certificate_email(
+            to_email=email,
+            participant_name=name,
+            event_name=event_name,
+            certificate_path=certificate_path,  # Use the generated certificate file
+            contract_address=CONTRACT_ADDRESS,
+            token_id=certificate_token_id,
+            poa_token_id=poa_token_id,
+            force_resend=True  # Bypass duplicate prevention for resend
+        )
+
+        if email_result.get("success"):
+            return {
+                "success": True,
+                "message": f"Certificate email resent successfully to {name} ({email})",
+                "participant_name": name,
+                "email": email,
+                "certificate_token_id": certificate_token_id
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to send email: {email_result.get('message', 'Unknown error')}")
+
+    except Exception as e:
+        print(f"Error in resend_certificate_email: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to resend email: {str(e)}")
 
 @app.get("/health")
 async def health_check():

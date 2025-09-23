@@ -14,10 +14,10 @@ async function main() {
   }
 
   if (!process.env.BASE_SEPOLIA_RPC_URL) {
-    console.log("ℹ️  Using default Base Sepolia RPC URL: https://sepolia.base.org");
+    console.log("ℹ️  Using default Base Sepolia RPC URL: https://public-en-kairos.node.kaia.io");
   }
 
-  const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org";
+  const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL || "https://public-en-kairos.node.kaia.io";
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   const deployer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
