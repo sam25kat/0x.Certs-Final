@@ -1,0 +1,3 @@
+METADATA_HASH=QmYtyUEA6XkYNDf3xQenfgk6iSTQxwFU5CUWg2fTqoaXDR
+METADATA_URL=https://gateway.pinata.cloud/ipfs/QmYtyUEA6XkYNDf3xQenfgk6iSTQxwFU5CUWg2fTqoaXDR
+FULL_RESPONSE={'IpfsHash': 'QmYtyUEA6XkYNDf3xQenfgk6iSTQxwFU5CUWg2fTqoaXDR', 'PinSize': 342, 'Timestamp': '2025-09-23T11:19:59.089Z', 'ID': 'b01bdccf-36b1-41a8-b095-e6408791493e', 'Name': 'PoA_Base_Metadata.json', 'NumberOfFiles': 1, 'MimeType': 'application/json', 'GroupId': None, 'Keyvalues': None}

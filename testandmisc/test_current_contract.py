@@ -61,7 +61,7 @@ def test_current_contract():
                 
                 # Check if our PoA image is present
                 image_url = metadata.get("image", "")
-                if "Qmf3vzYCg8wszTevWdqyLJLCHZaYDPpDgMkcHFqihRgKL6" in image_url:
+                if "Qmf3aMx3nyWHpw25EgEHZjM42yTWfH8wJLbHhwZuAQbWr5" in image_url:
                     print("\nSUCCESS: PoA image is present in metadata!")
                 else:
                     print(f"\nERROR: PoA image NOT found in metadata!")

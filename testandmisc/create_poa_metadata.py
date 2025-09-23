@@ -17,7 +17,7 @@ def create_and_upload_poa_metadata():
     poa_metadata = {
         "name": "Proof of Attendance (PoA)",
         "description": "Official Proof of Attendance NFT for events organized by 0x.day",
-        "image": "https://gateway.pinata.cloud/ipfs/Qmf3vzYCg8wszTevWdqyLJLCHZaYDPpDgMkcHFqihRgKL6",
+        "image": "https://gateway.pinata.cloud/ipfs/Qmf3aMx3nyWHpw25EgEHZjM42yTWfH8wJLbHhwZuAQbWr5",
         "external_url": "https://0x.day",
         "attributes": [
             {

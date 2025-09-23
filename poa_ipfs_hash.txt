@@ -1,0 +1,2 @@
+IPFS_HASH=Qmf3aMx3nyWHpw25EgEHZjM42yTWfH8wJLbHhwZuAQbWr5
+IMAGE_URL=https://gateway.pinata.cloud/ipfs/Qmf3aMx3nyWHpw25EgEHZjM42yTWfH8wJLbHhwZuAQbWr5

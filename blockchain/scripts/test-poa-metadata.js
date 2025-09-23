@@ -60,7 +60,7 @@ async function main() {
         console.log("Attributes:", JSON.stringify(metadata.attributes, null, 2));
         
         // Verify the PoA image is included
-        if (metadata.image && metadata.image.includes("Qmf3vzYCg8wszTevWdqyLJLCHZaYDPpDgMkcHFqihRgKL6")) {
+        if (metadata.image && metadata.image.includes("Qmf3aMx3nyWHpw25EgEHZjM42yTWfH8wJLbHhwZuAQbWr5")) {
             console.log("\n✅ SUCCESS: PoA image is correctly included in metadata!");
         } else {
             console.log("\n❌ ERROR: PoA image not found in metadata");

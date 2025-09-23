@@ -136,7 +136,7 @@ def generate_poa_metadata(event_name, participant_name):
     return {
         "name": f"{event_name} - Proof of Attendance",
         "description": f"Official Proof of Attendance NFT for {event_name} event issued to {participant_name} by 0x.day",
-        "image": "https://gateway.pinata.cloud/ipfs/Qmf3vzYCg8wszTevWdqyLJLCHZaYDPpDgMkcHFqihRgKL6",
+        "image": "https://gateway.pinata.cloud/ipfs/Qmf3aMx3nyWHpw25EgEHZjM42yTWfH8wJLbHhwZuAQbWr5",
         "external_url": "https://0x.day",
         "issuer": "0x.day",
         "attributes": [
