@@ -166,6 +166,20 @@ async def init_database_tables():
                 session_token VARCHAR(255),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS certificate_templates (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) UNIQUE NOT NULL,
+                display_name VARCHAR(255) NOT NULL,
+                description TEXT,
+                file_data BYTEA NOT NULL,
+                file_type VARCHAR(50) DEFAULT 'application/pdf',
+                uploaded_by VARCHAR(255) REFERENCES organizers(email),
+                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT TRUE,
+                is_default BOOLEAN DEFAULT FALSE
+            )
             """
         ]
     else:
@@ -236,6 +250,20 @@ async def init_database_tables():
                 session_token TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS certificate_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                display_name TEXT NOT NULL,
+                description TEXT,
+                file_data BLOB NOT NULL,
+                file_type TEXT DEFAULT 'application/pdf',
+                uploaded_by TEXT,
+                uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_active INTEGER DEFAULT 1,
+                is_default INTEGER DEFAULT 0
+            )
             """
         ]
     
@@ -243,7 +271,7 @@ async def init_database_tables():
     for i, sql in enumerate(tables_sql):
         try:
             await db_manager.execute_query(sql)
-            table_names = ["events", "participants", "organizers", "organizer_sessions", "organizer_otp_sessions"]
+            table_names = ["events", "participants", "organizers", "organizer_sessions", "organizer_otp_sessions", "certificate_templates"]
             print(f"Table '{table_names[i]}' created/verified successfully")
         except Exception as e:
             print(f"Error creating table {i}: {e}")

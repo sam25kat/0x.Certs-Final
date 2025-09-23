@@ -2036,14 +2036,14 @@ export default function OrganizerDashboard() {
                 <div className="grid gap-4">
                   {templatesData?.templates?.length ? (
                     templatesData.templates.map((template) => (
-                      <div key={template.filename} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div key={template.id} className="flex items-center justify-between p-4 border rounded-lg">
                         <div className="flex-1">
                           <h4 className="font-medium">{template.display_name}</h4>
                           <p className="text-sm text-muted-foreground">
-                            {template.filename} • {(template.file_size / 1024 / 1024).toFixed(2)} MB
+                            {template.name} • {template.file_type}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            Created: {new Date(template.created_at).toLocaleDateString()}
+                            Created: {new Date(template.uploaded_at).toLocaleDateString()}
                           </p>
                         </div>
                         <div className="flex gap-2">
@@ -2192,7 +2192,7 @@ export default function OrganizerDashboard() {
                   </SelectTrigger>
                   <SelectContent>
                     {templatesData?.templates?.map((template) => (
-                      <SelectItem key={template.filename} value={template.filename}>
+                      <SelectItem key={template.id} value={template.name}>
                         {template.display_name}
                       </SelectItem>
                     ))}

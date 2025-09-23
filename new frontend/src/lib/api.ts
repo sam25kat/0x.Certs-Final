@@ -41,10 +41,14 @@ export interface PlatformStats {
 }
 
 export interface CertificateTemplate {
-  filename: string;
+  id: number;
+  name: string;
   display_name: string;
-  file_size: number;
-  created_at: string;
+  description: string;
+  file_type: string;
+  uploaded_by: string | null;
+  uploaded_at: string;
+  is_default: boolean;
 }
 
 // API functions
@@ -206,12 +210,11 @@ export const api = {
     return response.json();
   },
 
-  uploadTemplate: async (file: File, sessionToken: string): Promise<{ message: string; filename: string; file_size: number; uploaded_by: string }> => {
+  uploadTemplate: async (file: File, sessionToken: string): Promise<{ success: boolean; message: string; template_id: number; template_name: string; display_name: string }> => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('session_token', sessionToken);
 
-    const response = await fetch(`${API_BASE_URL}/templates/upload`, {
+    const response = await fetch(`${API_BASE_URL}/templates/upload?session_token=${sessionToken}`, {
       method: 'POST',
       body: formData,
     });
@@ -219,8 +222,8 @@ export const api = {
     return response.json();
   },
 
-  deleteTemplate: async (filename: string, sessionToken: string): Promise<{ message: string; filename: string; deleted_by: string }> => {
-    const response = await fetch(`${API_BASE_URL}/templates/${filename}?session_token=${sessionToken}`, {
+  deleteTemplate: async (templateId: number, sessionToken: string): Promise<{ success: boolean; message: string }> => {
+    const response = await fetch(`${API_BASE_URL}/templates/${templateId}?session_token=${sessionToken}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete template');

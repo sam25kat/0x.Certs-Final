@@ -8,6 +8,7 @@ from io import BytesIO
 import fitz  # PyMuPDF for PDF processing
 from dotenv import load_dotenv
 from datetime import datetime
+from template_manager import template_manager
 
 load_dotenv()
 
@@ -61,27 +62,38 @@ class CertificateGenerator:
             # Fallback to string conversion if anything goes wrong
             return str(date_input)
 
-    def generate_certificate(self, participant_name, event_name, event_date, participant_email, team_name="", template_filename=None):
+    async def generate_certificate(self, participant_name, event_name, event_date, participant_email, team_name="", template_filename=None):
         """Generate a personalized certificate"""
         try:
             # Format the date to be more readable
             formatted_date = self.format_date(event_date)
-            
-            # Determine template path
-            if template_filename:
-                template_path = os.path.join(self.template_dir, template_filename)
-                if not os.path.exists(template_path):
-                    print(f"Template {template_filename} not found, using default")
+
+            # Get template from database or use fallback
+            template_path = None
+            temp_file_cleanup = False
+
+            if template_filename and template_filename != 'default':
+                # Try to get template from database
+                template_path = await template_manager.create_temp_file(template_filename)
+                if template_path:
+                    temp_file_cleanup = True
+                else:
+                    print(f"Template {template_filename} not found in database, using default")
+
+            # Fallback to file system default if no database template
+            if not template_path:
+                if os.path.exists(self.default_template_path):
                     template_path = self.default_template_path
-            else:
-                template_path = self.default_template_path
-            
-            # Check if template exists
-            if not os.path.exists(template_path):
-                return {
-                    'success': False,
-                    'error': f'Template file not found: {template_path}'
-                }
+                else:
+                    # Try to get default template from database
+                    template_path = await template_manager.create_temp_file('default')
+                    if template_path:
+                        temp_file_cleanup = True
+                    else:
+                        return {
+                            'success': False,
+                            'error': 'No template found - neither in database nor file system'
+                        }
             
             # Open the PDF template
             doc = fitz.open(template_path)
@@ -156,16 +168,29 @@ class CertificateGenerator:
                 image = rgb_image
             
             image.save(output_path, "JPEG", quality=95)
-            
+
             doc.close()
-            
+
+            # Clean up temporary file if created
+            if temp_file_cleanup and template_path and os.path.exists(template_path):
+                try:
+                    os.unlink(template_path)
+                except:
+                    pass  # Ignore cleanup errors
+
             return {
                 "success": True,
                 "file_path": output_path,
                 "filename": output_filename
             }
-            
+
         except Exception as e:
+            # Clean up temporary file if created and error occurred
+            if temp_file_cleanup and template_path and os.path.exists(template_path):
+                try:
+                    os.unlink(template_path)
+                except:
+                    pass  # Ignore cleanup errors
             return {
                 "success": False,
                 "error": str(e)
@@ -262,19 +287,20 @@ class CertificateGenerator:
             }
 
 # Test function
-if __name__ == "__main__":
+async def main():
+    """Test certificate generation"""
     generator = CertificateGenerator()
-    
+
     # Test certificate generation with YYYY-MM-DD format
-    result = generator.generate_certificate(
+    result = await generator.generate_certificate(
         participant_name="John Doe",
         event_name="Blockchain Hackathon 2025",
         event_date="2025-09-08",  # Testing with YYYY-MM-DD format
         participant_email="john@example.com"
     )
-    
+
     print("Certificate generation result:", result)
-    
+
     if result["success"]:
         # Test IPFS upload
         ipfs_result = generator.upload_to_ipfs(
@@ -286,3 +312,7 @@ if __name__ == "__main__":
             }
         )
         print("IPFS upload result:", ipfs_result)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())

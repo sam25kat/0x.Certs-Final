@@ -369,8 +369,7 @@ class BulkCertificateProcessor:
             print(f"Processing participant: {participant['name']}")
             
             # Generate certificate
-            cert_result = await asyncio.to_thread(
-                self.cert_generator.generate_certificate,
+            cert_result = await self.cert_generator.generate_certificate(
                 participant_name=participant['name'],
                 event_name=event_details['name'],
                 event_date=event_details['date'],
