@@ -241,6 +241,30 @@ export default function LandingPage() {
                     <div>
                       <CardTitle className="text-lg text-white">Network Configuration</CardTitle>
                       <p className="text-gray-400 text-sm">Configure your wallet for Kaia Testnet network</p>
+                      <div className="mt-3 p-4 bg-primary/10 border border-primary/20 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-primary font-medium text-sm">Quick Network Setup</p>
+                            <p className="text-gray-300 text-xs">Add Kaia Testnet with one click</p>
+                          </div>
+                          <Button
+                            asChild
+                            variant="default"
+                            size="sm"
+                            className="bg-primary hover:bg-primary/90 ml-4"
+                          >
+                            <a
+                              href="https://chainlist.org/?search=kaia+kairos+testnet&testnets=true"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              One-Click Setup
+                            </a>
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   <Button
@@ -288,11 +312,11 @@ export default function LandingPage() {
                       <div>
                         <label className="text-primary font-medium text-sm">Currency</label>
                         <div className="flex items-center gap-2 mt-1">
-                          <code className="flex-1 p-2 bg-muted/20 rounded text-gray-300 font-mono text-sm">ETH</code>
+                          <code className="flex-1 p-2 bg-muted/20 rounded text-gray-300 font-mono text-sm">KAIA</code>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => copyToClipboard('ETH', 'currency')}
+                            onClick={() => copyToClipboard('KAIA', 'currency')}
                             className="text-gray-400 hover:text-white"
                           >
                             {copiedAddress === 'currency' ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -318,11 +342,11 @@ export default function LandingPage() {
                       <div>
                         <label className="text-primary font-medium text-sm">Block Explorer</label>
                         <div className="flex items-center gap-2 mt-1">
-                          <code className="flex-1 p-2 bg-muted/20 rounded text-gray-300 font-mono text-sm break-all">https://sepolia.basescan.org</code>
+                          <code className="flex-1 p-2 bg-muted/20 rounded text-gray-300 font-mono text-sm break-all">https://kairos.kaiascan.io</code>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => copyToClipboard('https://sepolia.basescan.org', 'explorer')}
+                            onClick={() => copyToClipboard('https://kairos.kaiascan.io', 'explorer')}
                             className="text-gray-400 hover:text-white"
                           >
                             {copiedAddress === 'explorer' ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -335,13 +359,34 @@ export default function LandingPage() {
                     <div className="flex items-start gap-3">
                       <Info className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
                       <div>
-                        <p className="text-blue-400 font-medium text-sm mb-2">Setup Instructions</p>
-                        <ol className="text-gray-300 text-sm space-y-1 list-decimal list-inside">
-                          <li>Open MetaMask → Settings → Networks → Add Network</li>
-                          <li>Fill in the network details above</li>
-                          <li>Save and switch to Kaia Testnet network</li>
-                          <li>You're ready to mint NFT certificates!</li>
-                        </ol>
+                        <p className="text-blue-400 font-medium text-sm mb-3">Setup Instructions</p>
+
+                        {/* Side-by-side setup methods - centered container */}
+                        <div className="flex justify-center">
+                          <div className="grid md:grid-cols-2 gap-4 w-fit">
+                            {/* Method 1: One-Click Setup */}
+                            <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+                              <p className="text-green-400 font-medium text-sm mb-3">Method 1: One-Click Setup (Recommended)</p>
+                              <ol className="text-gray-300 text-sm space-y-2 list-decimal list-inside">
+                                <li>Click the "One-Click Setup" button above</li>
+                                <li>Select "Connect Wallet" on ChainList</li>
+                                <li>Approve the network addition in your wallet</li>
+                                <li>You're ready to import NFTs</li>
+                              </ol>
+                            </div>
+
+                            {/* Method 2: Manual Setup */}
+                            <div className="p-4 bg-gray-500/10 border border-gray-500/20 rounded-lg">
+                              <p className="text-gray-400 font-medium text-sm mb-3">Method 2: Manual Setup</p>
+                              <ol className="text-gray-300 text-sm space-y-2 list-decimal list-inside">
+                                <li>Open MetaMask → Settings → Networks → Add Network</li>
+                                <li>Fill in the network details above</li>
+                                <li>Save and switch to Kaia Testnet network</li>
+                                <li>You're ready to import NFTs</li>
+                              </ol>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>

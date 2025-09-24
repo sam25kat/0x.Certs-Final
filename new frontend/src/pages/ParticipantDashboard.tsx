@@ -238,7 +238,28 @@ export default function ParticipantDashboard() {
         onClick={() => setShowNetworkConfig(!showNetworkConfig)}
         className="w-full flex items-center justify-between p-3 text-left text-white hover:bg-green-600/10 transition-colors"
       >
-        <span className="text-sm font-medium">Kaia Testnet Network Configuration</span>
+        <div className="flex items-center justify-between w-full">
+          <div>
+            <span className="text-sm font-medium">Kaia Testnet Network Configuration</span>
+            <div className="text-xs text-gray-400 mt-1">Add network with one click or manual setup</div>
+          </div>
+          <Button
+            asChild
+            variant="default"
+            size="sm"
+            className="bg-green-600 hover:bg-green-700 text-white shrink-0 ml-3"
+          >
+            <a
+              href="https://chainlist.org/?search=kaia+kairos+testnet&testnets=true"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1"
+            >
+              <ExternalLink className="h-3 w-3" />
+              One-Click Setup
+            </a>
+          </Button>
+        </div>
         {showNetworkConfig ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
       </button>
       
@@ -271,11 +292,31 @@ export default function ParticipantDashboard() {
             </div>
           </div>
           <div className="mt-3 p-3 bg-green-600/10 rounded border border-green-600/20">
-            <div className="text-green-400 text-xs font-medium mb-2">How to Add to MetaMask:</div>
-            <div className="text-gray-300 text-xs space-y-1">
-              <div>1. Open MetaMask → Settings → Networks → Add Network</div>
-              <div>2. Fill in the details above</div>
-              <div>3. Save and switch to Kaia Testnet network</div>
+            <div className="text-green-400 text-xs font-medium mb-3">Setup Instructions:</div>
+
+            {/* Side-by-side setup methods - centered container */}
+            <div className="flex justify-center">
+              <div className="grid md:grid-cols-2 gap-3 w-fit">
+                {/* Method 1: One-Click Setup */}
+                <div className="p-3 bg-green-500/10 border border-green-500/20 rounded">
+                  <div className="text-green-300 text-xs font-medium mb-2">One-Click Setup (Recommended):</div>
+                  <div className="text-gray-300 text-xs space-y-1">
+                    <div>1. Click "One-Click Setup" button above</div>
+                    <div>2. Connect your wallet on ChainList</div>
+                    <div>3. Approve network addition in wallet</div>
+                  </div>
+                </div>
+
+                {/* Method 2: Manual Setup */}
+                <div className="p-3 bg-gray-600/10 border border-gray-600/20 rounded">
+                  <div className="text-gray-400 text-xs font-medium mb-2">Manual Setup:</div>
+                  <div className="text-gray-300 text-xs space-y-1">
+                    <div>1. Open MetaMask → Settings → Networks → Add Network</div>
+                    <div>2. Fill in the details above</div>
+                    <div>3. Save and switch to Kaia Testnet network</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -135,7 +135,7 @@ class EmailService:
                 <strong>Contract Address:</strong><br>
                 <div class="contract-info">{contract_address}</div><br>
                 <strong>Token ID:</strong> <span style="font-size: 18px; font-weight: bold; color: #00cc66;">{token_id}</span><br>
-                <strong>Blockchain:</strong> Ethereum
+                <strong>Blockchain:</strong> Kaia Testnet
             </div>
         </div>
 
@@ -208,6 +208,75 @@ class EmailService:
         <div style="text-align: center; margin: 30px 0; font-size: 16px;">
             Thank you for being part of <strong>{event_name}</strong>!
         </div>
+
+        <div class="section">
+            <div class="section-title">Network Configuration</div>
+            <div class="info-box">
+                <strong>Configure your wallet for Kaia Testnet network</strong><br><br>
+
+                <div style="background: #e8f5e8; border: 2px solid #00cc66; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: center;">
+                    <div style="margin-bottom: 10px;">
+                        <strong style="color: #00cc66;">Quick Network Setup</strong><br>
+                        <small style="color: #666;">Add Kaia Testnet with one click</small>
+                    </div>
+                    <a href="https://chainlist.org/?search=kaia+kairos+testnet&testnets=true"
+                       target="_blank"
+                       style="display: inline-block; background: #00cc66; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; margin: 5px;">
+                        One-Click Setup
+                    </a>
+                </div>
+
+                <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 15px 0;">
+                    <h4 style="color: #00cc66; margin-bottom: 15px;">Manual Network Setup</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                        <div>
+                            <strong style="color: #00cc66;">Network Name:</strong><br>
+                            <code style="background: #fff; padding: 5px; border-radius: 3px; font-size: 12px;">Kaia Testnet Kairos</code>
+                        </div>
+                        <div>
+                            <strong style="color: #00cc66;">Chain ID:</strong><br>
+                            <code style="background: #fff; padding: 5px; border-radius: 3px; font-size: 12px;">1001</code>
+                        </div>
+                        <div>
+                            <strong style="color: #00cc66;">Currency:</strong><br>
+                            <code style="background: #fff; padding: 5px; border-radius: 3px; font-size: 12px;">KAIA</code>
+                        </div>
+                        <div>
+                            <strong style="color: #00cc66;">RPC URL:</strong><br>
+                            <code style="background: #fff; padding: 5px; border-radius: 3px; font-size: 11px; word-break: break-all;">https://public-en-kairos.node.kaia.io</code>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <strong style="color: #00cc66;">Block Explorer:</strong><br>
+                        <code style="background: #fff; padding: 5px; border-radius: 3px; font-size: 11px; word-break: break-all;">https://kairos.kaiascan.io</code>
+                    </div>
+
+                    <div style="background: #e6f3ff; border-left: 4px solid #007acc; padding: 15px; border-radius: 5px; margin-top: 15px;">
+                        <strong style="color: #007acc;">Setup Instructions:</strong>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px;">
+                            <div style="background: #e8f5e8; padding: 10px; border-radius: 5px;">
+                                <strong style="color: #00cc66;">Method 1: One-Click Setup (Recommended)</strong>
+                                <ol style="font-size: 12px; margin: 10px 0; color: #333;">
+                                    <li>Click the "One-Click Setup" button above</li>
+                                    <li>Select "Connect Wallet" on ChainList</li>
+                                    <li>Approve the network addition in your wallet</li>
+                                    <li>You're ready to import NFTs</li>
+                                </ol>
+                            </div>
+                            <div style="background: #f0f0f0; padding: 10px; border-radius: 5px;">
+                                <strong style="color: #666;">Method 2: Manual Setup</strong>
+                                <ol style="font-size: 12px; margin: 10px 0; color: #333;">
+                                    <li>Open MetaMask → Settings → Networks → Add Network</li>
+                                    <li>Fill in the network details above</li>
+                                    <li>Save and switch to Kaia Testnet network</li>
+                                    <li>You're ready to import NFTs</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="footer">
@@ -250,7 +319,7 @@ Certificate Type: NFT (Non-Fungible Token)
 NFT Information
 Contract Address: {contract_address}
 Token ID: {token_id}
-Blockchain: Ethereum
+Blockchain: Kaia Testnet
 
 How to Add NFT to Your Wallet
 
@@ -278,6 +347,34 @@ Next Steps
 4. Keep these NFTs as proof of your participation and achievement
 
 Thank you for being part of {event_name}.
+
+Network Configuration
+Configure your wallet for Kaia Testnet network
+
+Quick Network Setup
+→ One-Click Setup Link: https://chainlist.org/?search=kaia+kairos+testnet&testnets=true
+→ Add Kaia Testnet with one click
+
+Manual Network Setup:
+→ Network Name: Kaia Testnet Kairos
+→ Chain ID: 1001
+→ Currency: KAIA
+→ RPC URL: https://public-en-kairos.node.kaia.io
+→ Block Explorer: https://kairos.kaiascan.io
+
+Setup Instructions:
+
+Method 1: One-Click Setup (Recommended)
+1. Click the one-click setup link above
+2. Select "Connect Wallet" on ChainList
+3. Approve the network addition in your wallet
+4. You're ready to import NFTs
+
+Method 2: Manual Setup
+1. Open MetaMask → Settings → Networks → Add Network
+2. Fill in the network details above
+3. Save and switch to Kaia Testnet network
+4. You're ready to import NFTs
 
 Best regards,
 0x.Day

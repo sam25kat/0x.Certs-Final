@@ -74,7 +74,22 @@ export function NetworkSwitcher() {
             <div className="flex-1">
               <strong>Wrong network detected!</strong> Please switch to Kaia Testnet Kairos (Chain ID: 1001) to use this application.
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                asChild
+                variant="default"
+                size="sm"
+                className="shrink-0 bg-primary hover:bg-primary/90"
+              >
+                <a
+                  href="https://chainlist.org/?search=kaia+kairos+testnet&testnets=true"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1"
+                >
+                  Quick Setup
+                </a>
+              </Button>
               <Button
                 onClick={switchToKaiaTestnet}
                 disabled={isPending}
@@ -118,14 +133,51 @@ export function NetworkInstructions() {
           Manual Network Setup
         </CardTitle>
         <CardDescription>
-          If automatic network switching doesn't work, add the network manually
+          Quick setup recommended, or add the network manually if needed
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="text-sm space-y-2">
-          <p><strong>1.</strong> Open your wallet (MetaMask, etc.)</p>
-          <p><strong>2.</strong> Go to Networks → Add Network</p>
-          <p><strong>3.</strong> Add these details:</p>
+        {/* Side-by-side setup methods - centered container */}
+        <div className="flex justify-center">
+          <div className="grid md:grid-cols-2 gap-4 w-fit">
+            {/* Quick Setup Section */}
+            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+              <h4 className="text-sm font-medium text-green-800 mb-3">One-Click Setup (Recommended)</h4>
+              <div className="mb-3">
+                <Button
+                  asChild
+                  variant="default"
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700 w-full"
+                >
+                  <a
+                    href="https://chainlist.org/?search=kaia+kairos+testnet&testnets=true"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Setup Network
+                  </a>
+                </Button>
+              </div>
+              <div className="text-sm text-green-700 space-y-2">
+                <p>1. Click the "Setup Network" button above</p>
+                <p>2. Connect your wallet on ChainList</p>
+                <p>3. Approve the network addition</p>
+              </div>
+            </div>
+
+            {/* Manual Setup Section */}
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-800 mb-3">Manual Setup</h4>
+              <div className="text-sm space-y-2 text-gray-700">
+                <p><strong>1.</strong> Open your wallet (MetaMask, etc.)</p>
+                <p><strong>2.</strong> Go to Networks → Add Network</p>
+                <p><strong>3.</strong> Add the network details below</p>
+              </div>
+            </div>
+          </div>
         </div>
         
         <div className="bg-muted p-4 rounded-lg space-y-2 text-sm font-mono">
