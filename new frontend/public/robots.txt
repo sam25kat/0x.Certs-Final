@@ -1,14 +1,98 @@
-User-agent: Googlebot
-Allow: /
+# Robots.txt for 0x.Certs NFT Certificate Platform
+# Last updated: 2024-09-24
 
-User-agent: Bingbot
-Allow: /
-
+# Allow social media crawlers for sharing
 User-agent: Twitterbot
 Allow: /
+Allow: /logo.png
+Allow: /favicon.ico
 
 User-agent: facebookexternalhit
 Allow: /
+Allow: /logo.png
+Allow: /favicon.ico
 
+# Allow major search engines with restrictions
+User-agent: Googlebot
+Allow: /
+Allow: /logo.png
+Allow: /favicon.ico
+Allow: /placeholder.svg
+# Block API endpoints and sensitive areas
+Disallow: /organizer/
+Disallow: /create_event
+Disallow: /register_participant
+Disallow: /participants/
+Disallow: /generate_certificates/
+Disallow: /send_emails/
+Disallow: /bulk_*
+Disallow: /confirm_*
+Disallow: /telegram/
+Disallow: /verify-telegram-membership
+Disallow: /participant_status/
+Disallow: /debug/
+Disallow: /config
+Disallow: /templates/
+Disallow: /background_task_status/
+Disallow: /certificate_status/
+Disallow: /health
+
+User-agent: Bingbot
+Allow: /
+Allow: /logo.png
+Allow: /favicon.ico
+Allow: /placeholder.svg
+# Block API endpoints and sensitive areas
+Disallow: /organizer/
+Disallow: /create_event
+Disallow: /register_participant
+Disallow: /participants/
+Disallow: /generate_certificates/
+Disallow: /send_emails/
+Disallow: /bulk_*
+Disallow: /confirm_*
+Disallow: /telegram/
+Disallow: /verify-telegram-membership
+Disallow: /participant_status/
+Disallow: /debug/
+Disallow: /config
+Disallow: /templates/
+Disallow: /background_task_status/
+Disallow: /certificate_status/
+Disallow: /health
+
+# Block all other crawlers from sensitive endpoints
 User-agent: *
 Allow: /
+Allow: /logo.png
+Allow: /favicon.ico
+Allow: /placeholder.svg
+# Block all API endpoints for security
+Disallow: /organizer/
+Disallow: /create_event
+Disallow: /register_participant
+Disallow: /participants/
+Disallow: /events
+Disallow: /generate_certificates/
+Disallow: /send_emails/
+Disallow: /bulk_*
+Disallow: /confirm_*
+Disallow: /telegram/
+Disallow: /verify-telegram-membership
+Disallow: /participant_status/
+Disallow: /debug/
+Disallow: /config
+Disallow: /templates/
+Disallow: /background_task_status/
+Disallow: /certificate_status/
+Disallow: /health
+Disallow: /upload_template/
+Disallow: /delete_event/
+Disallow: /clear_participant/
+Disallow: /resend_certificate_email/
+
+# Crawl delay to prevent server overload
+Crawl-delay: 1
+
+# Sitemap location (add when available)
+# Sitemap: https://yourdomain.com/sitemap.xml

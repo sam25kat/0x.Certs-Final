@@ -729,12 +729,14 @@ export default function OrganizerDashboard() {
       (window as any).currentBulkMintEventId = eventId;
       (window as any).currentBulkMintParticipantIds = selectedParticipantIds;
 
-      // Execute bulk mint
+      // Execute bulk mint with proper gas configuration for Kaia
       bulkMintWrite({
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
         functionName: 'bulkMintPoA',
-        args: [result.recipients, BigInt(eventId), result.ipfs_hash]
+        args: [result.recipients, BigInt(eventId), result.ipfs_hash],
+        gas: 300000n, // Fixed gas limit for bulk minting
+        gasPrice: 25000000000n // 25 gwei in wei
       });
 
     } catch (error) {
@@ -927,12 +929,14 @@ export default function OrganizerDashboard() {
       (window as any).currentBatchTransferEventId = eventId;
       (window as any).currentBatchTransferParticipantIds = selectedParticipantIds;
 
-      // Execute batch transfer
+      // Execute batch transfer with proper gas configuration for Kaia
       batchTransferWrite({
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
         functionName: 'batchTransfer',
-        args: [result.recipients, result.token_ids.map((id: number) => BigInt(id))]
+        args: [result.recipients, result.token_ids.map((id: number) => BigInt(id))],
+        gas: 200000n, // Fixed gas limit for batch transfer
+        gasPrice: 25000000000n // 25 gwei in wei
       });
 
     } catch (error) {
