@@ -70,7 +70,7 @@ export default function ParticipantDashboard() {
     try {
       const result = await api.getParticipantStatusFromDB(address);
       setParticipantStatus(result);
-      showNotification('success', 'Refreshed', 'Your NFT status has been updated');
+      // Removed notification popup for refresh - silent update
     } catch (error) {
       console.error('Error loading NFT status:', error);
       showNotification('error', 'Refresh Failed', 'Unable to update your NFT status. Please try again.');

@@ -1488,17 +1488,8 @@ async def register_participant(participant: ParticipantRegister):
             else:
                 # Different person trying to use the same wallet address
                 print(f"[ERROR] Wallet address already in use: {participant.wallet_address} by {existing_name} ({existing_email})")
-                raise HTTPException(
-                    status_code=400, 
-                    detail={
-                        "error": "WALLET_ADDRESS_IN_USE",
-                        "message": f"This wallet address is already registered for this event by another participant: {existing_name} ({existing_email}). Each participant must use a unique wallet address.",
-                        "existing_participant": {
-                            "name": existing_name,
-                            "email": existing_email
-                        }
-                    }
-                )
+                error_message = f"This wallet address is already registered by {existing_name}. Please use a different wallet address."
+                raise HTTPException(status_code=400, detail=error_message)
         
         # Register new participant 
         print(f"[INFO] Registering new participant: {participant.name}")
@@ -1541,6 +1532,9 @@ async def register_participant(participant: ParticipantRegister):
             "requires_nft_mint": True
         }
         
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is (includes wallet address validation errors)
+        raise
     except Exception as e:
         print(f"Registration error: {e}")
         raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
