@@ -602,6 +602,158 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* PoA Story Section */}
+      <section className="py-20 md:py-32 bg-gradient-to-b from-background to-muted/20">
+        <div className="container mx-auto px-4">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Left side - Image */}
+            <div className="relative">
+              <div className="relative h-[500px] overflow-hidden rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
+                <img
+                  src="/PoA.png"
+                  alt="Proof of Attendance NFT by 0x.Day"
+                  className="w-full h-full object-contain p-8"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-background/20 to-transparent"></div>
+              </div>
+            </div>
+
+            {/* Right side - Content */}
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Award className="h-6 w-6 text-yellow-400" />
+                  <span className="text-yellow-400 font-semibold">PROOF OF ATTENDANCE</span>
+                </div>
+                <h2 className="text-3xl md:text-4xl font-bold text-white">
+                  Innovation is Around You
+                </h2>
+                <p className="text-primary font-medium">Discover. Build. Lead.</p>
+              </div>
+
+              <div className="space-y-4 text-muted-foreground">
+                <p>
+                  The most memorable moments in building something aren't always the big milestones. Sometimes, it's watching hundreds of people connect with something you created from the heart.
+                </p>
+                <p>
+                  When our beloved mascot first took the stage, the energy in the room was electric. It perfectly embodied our core belief: <span className="text-primary font-medium">"Innovation is around you, Discover. Build. Lead."</span>
+                </p>
+                <p>
+                  Here's what makes this story special: this character didn't emerge from expensive design consultations or corporate meetings. Instead, it was inspired by something beautifully simple, a founder's evening reading sessions with their young daughter.
+                </p>
+                <p>
+                  Through nightly storytelling rituals and children's book illustrations, a profound realization emerged: <span className="text-white font-medium">Breakthrough ideas often hide in the most ordinary moments. We just need to stay curious enough to spot them.</span>
+                </p>
+                <p>
+                  This embodies the essence of 0x.Day. Innovation lives everywhere, in weekend hackathons, late-night coding sessions, casual conversations, and yes, even in bedtime stories. The best ideas don't wait for perfect timing or formal permission.
+                </p>
+                <p>
+                  <span className="text-white font-medium">This mascot now serves as our PoA (Proof of Attendance) NFT</span>, a unique digital token that proves you were part of our innovation journey. When you attend our events, you receive this special NFT as permanent proof of your participation in the Web3 ecosystem.
+                </p>
+                <p className="text-white">
+                  Our mascot has become more than visual identity, it's a philosophy. A reminder to our builders, our community, and everyone who witnessed its debut: <span className="text-primary">The next big breakthrough isn't hidden in some distant place. It's probably sitting right beside you, waiting to be discovered.</span>
+                </p>
+              </div>
+
+              <div className="flex items-center gap-4 pt-4">
+                <div className="p-3 bg-yellow-400/10 rounded-lg border border-yellow-400/20">
+                  <Award className="h-6 w-6 text-yellow-400" />
+                </div>
+                <div>
+                  <p className="text-white font-semibold">NFT Proof of Attendance</p>
+                  <p className="text-sm text-muted-foreground">Secure your place in innovation history</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Certificate NFT Section */}
+      <section className="py-20 md:py-32">
+        <div className="container mx-auto px-4">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Left side - Content */}
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-6 w-6 text-purple-400" />
+                  <span className="text-purple-400 font-semibold">CERTIFICATE NFT</span>
+                </div>
+                <h2 className="text-3xl md:text-4xl font-bold text-white">
+                  Moving to a New Future
+                </h2>
+                <p className="text-primary font-medium">Where Achievements Live Forever</p>
+              </div>
+
+              <div className="space-y-4 text-muted-foreground">
+                <p>
+                  The future of credentials isn't paper certificates that fade or digital files that get lost. It's <span className="text-white font-medium">immutable, verifiable, and truly yours</span>, powered by blockchain technology.
+                </p>
+                <p>
+                  Our Certificate NFTs represent more than just completion. They're proof of your journey, your growth, and your commitment to innovation. Each certificate is uniquely yours, stored permanently on the blockchain, and instantly verifiable by anyone, anywhere.
+                </p>
+                <p>
+                  <span className="text-white font-medium">Beyond attendance, we also offer PoC (Proof of Completion) certificates</span> for those who complete our challenges and workshops. These blockchain-verified credentials showcase your achievements and skills in the decentralized future.
+                </p>
+                <p>
+                  <span className="text-primary font-medium">Moving to a new future</span> means leaving behind the old ways of proving what you've accomplished. No more lost certificates, no more "please send me a copy" emails, no more doubts about authenticity.
+                </p>
+                <p className="text-white">
+                  Your achievements deserve to be as permanent and innovative as the work you put in to earn them.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="h-5 w-5 text-primary mt-1 flex-shrink-0" />
+                  <div>
+                    <h4 className="font-semibold text-white">Permanent & Tamper-Proof</h4>
+                    <p className="text-muted-foreground text-sm">Your achievements, secured forever on the blockchain</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Shield className="h-5 w-5 text-primary mt-1 flex-shrink-0" />
+                  <div>
+                    <h4 className="font-semibold text-white">Instantly Verifiable</h4>
+                    <p className="text-muted-foreground text-sm">No need for third-party verification services</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Award className="h-5 w-5 text-primary mt-1 flex-shrink-0" />
+                  <div>
+                    <h4 className="font-semibold text-white">Truly Yours</h4>
+                    <p className="text-muted-foreground text-sm">Own your credentials, control your narrative</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 pt-4">
+                <div className="p-3 bg-purple-400/10 rounded-lg border border-purple-400/20">
+                  <Shield className="h-6 w-6 text-purple-400" />
+                </div>
+                <div>
+                  <p className="text-white font-semibold">NFT Achievement Certificate</p>
+                  <p className="text-sm text-muted-foreground">The future of professional credentials</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Right side - Image */}
+            <div className="relative">
+              <div className="relative h-[500px] overflow-hidden rounded-lg bg-gradient-to-br from-purple-500/10 to-purple-500/5 border border-purple-500/20">
+                <img
+                  src="/0x.day-cert.png"
+                  alt="0x.Day Certificate NFT"
+                  className="w-full h-full object-contain p-8"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-background/20 to-transparent"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="py-12 md:py-20">
         <div className="container mx-auto px-4">
