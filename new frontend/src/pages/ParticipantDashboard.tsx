@@ -63,14 +63,16 @@ export default function ParticipantDashboard() {
     }
   }, [address]);
 
-  const loadUserNFTStatus = async () => {
+  const loadUserNFTStatus = async (showNotificationOnSuccess = false) => {
     if (!address) return;
-    
+
     setIsRefreshing(true);
     try {
       const result = await api.getParticipantStatusFromDB(address);
       setParticipantStatus(result);
-      showNotification('success', 'Refreshed', 'Your NFT status has been updated');
+      if (showNotificationOnSuccess) {
+        showNotification('success', 'Refreshed', 'Your NFT status has been updated');
+      }
     } catch (error) {
       console.error('Error loading NFT status:', error);
       showNotification('error', 'Refresh Failed', 'Unable to update your NFT status. Please try again.');
@@ -180,15 +182,46 @@ export default function ParticipantDashboard() {
       loadUserNFTStatus();
     } catch (error) {
       console.error('Registration error:', error);
+      console.error('Error type:', typeof error);
+      console.error('Error message:', error instanceof Error ? error.message : 'Unknown error');
+
       let errorMessage = 'Registration failed';
-      
+
       // Try to extract the actual error message from the API response
       if (error instanceof Error) {
         errorMessage = error.message;
-        
-        // Handle specific error cases
-        if (errorMessage.includes('wallet address is already registered') || errorMessage.includes('already registered')) {
-          showNotification('error', 'Wallet Already Registered', `${errorMessage}. Please use a different wallet address or contact support if this is incorrect.`);
+        console.log('Full error message:', `"${errorMessage}"`); // Debug log with quotes to see exact content
+
+        // Special case: if error message is empty or just "Registration failed: .",
+        // but we're getting a 500 error, it's likely a duplicate wallet issue
+        if (errorMessage === 'Registration failed' ||
+            errorMessage === 'Registration failed: ' ||
+            errorMessage === 'Registration failed: .' ||
+            errorMessage.trim() === '') {
+          console.log('🔍 Empty error message detected - likely duplicate wallet from backend logs');
+          showNotification('error', 'Oopsie!', 'That wallet is already registered! Please use a different wallet address or contact support if this is incorrect.');
+          return;
+        }
+
+        // Handle specific error cases - check for various duplicate wallet patterns
+        const lowerErrorMessage = errorMessage.toLowerCase();
+        if (lowerErrorMessage.includes('same user already registered') ||
+            lowerErrorMessage.includes('already registered') ||
+            lowerErrorMessage.includes('wallet address is already registered') ||
+            lowerErrorMessage.includes('already completed the full process') ||
+            lowerErrorMessage.includes('wallet already registered') ||
+            lowerErrorMessage.includes('each participant can only register once') ||
+            lowerErrorMessage.includes('wallet address is already registered for this event') ||
+            lowerErrorMessage.includes('this wallet address is already registered') ||
+            lowerErrorMessage.includes('user already exists') ||
+            lowerErrorMessage.includes('duplicate wallet') ||
+            lowerErrorMessage.includes('wallet already used') ||
+            lowerErrorMessage.includes('wallet_address_in_use') ||
+            (lowerErrorMessage.includes('same') && lowerErrorMessage.includes('user')) ||
+            (lowerErrorMessage.includes('already') && lowerErrorMessage.includes('registered')) ||
+            (lowerErrorMessage.includes('wallet') && lowerErrorMessage.includes('already'))) {
+          console.log('✅ Duplicate wallet detected! Showing Oopsie message'); // Debug log
+          showNotification('error', 'Oopsie!', 'That wallet is already registered! Please use a different wallet address or contact support if this is incorrect.');
           return;
         } else if (errorMessage.includes('already completed the full process')) {
           showNotification('error', 'Already Completed', errorMessage);
@@ -199,7 +232,7 @@ export default function ParticipantDashboard() {
         }
       }
       
-      showNotification('error', 'Registration failed', errorMessage);
+      showNotification('error', 'Oops! Registration Failed 🚫', `Something went wrong during registration. ${errorMessage}. Please check your details and try again, or contact support if the issue persists.`);
     } finally {
       setIsRegistering(false);
     }
@@ -1102,7 +1135,7 @@ export default function ParticipantDashboard() {
                   {showStatus ? 'Hide Status' : 'Show Status'}
                 </Button>
                 <Button
-                  onClick={loadUserNFTStatus}
+                  onClick={() => loadUserNFTStatus(true)}
                   variant="ghost"
                   size="sm"
                   disabled={isRefreshing}
