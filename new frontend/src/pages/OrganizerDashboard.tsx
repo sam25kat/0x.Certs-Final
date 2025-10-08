@@ -2086,7 +2086,7 @@ export default function OrganizerDashboard() {
         {/* Header with user info and controls */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-4xl font-bold gradient-text">Organizer Dashboard</h1>
+            <h1 className="text-4xl font-bold gradient-text">Admin Dashboard</h1>
             <p className="text-muted-foreground">
               Welcome, {session?.email}
               {session?.isRoot && <Badge className="ml-2" variant="default">Root Admin</Badge>}
