@@ -363,11 +363,11 @@ class BulkCertificateProcessor:
         verification = await db_manager.execute_query(converted_verify_query, verify_params, fetch=True)
         print(f"Verification - participant {participant_id} status: {verification}")
     
-    async def process_single_participant(self, participant, event_details, event_id):
+    async def process_single_participant(self, participant, event_details, event_id, send_email_immediately=False):
         """Process a single participant certificate in parallel"""
         try:
             print(f"Processing participant: {participant['name']}")
-            
+
             # Generate certificate
             cert_result = await self.cert_generator.generate_certificate(
                 participant_name=participant['name'],
@@ -377,16 +377,17 @@ class BulkCertificateProcessor:
                 team_name=participant['team_name'],
                 template_filename=event_details.get('template')
             )
-            
+
             if not cert_result['success']:
                 print(f"Certificate generation failed for {participant['name']}: {cert_result.get('error', 'Unknown error')}")
                 return {
                     "participant": participant['name'],
                     "step": "certificate_generation",
                     "success": False,
-                    "error": cert_result['error']
+                    "error": cert_result['error'],
+                    "email_sent": False
                 }
-            
+
             # Upload to IPFS
             ipfs_result = await asyncio.to_thread(
                 self.cert_generator.upload_to_ipfs,
@@ -398,7 +399,7 @@ class BulkCertificateProcessor:
                     "team_name": participant['team_name']
                 }
             )
-            
+
             if not ipfs_result['success']:
                 print(f"IPFS upload failed for {participant['name']}: {ipfs_result.get('error', 'Unknown error')}")
                 print(f"Continuing with local certificate storage for {participant['name']}")
@@ -408,23 +409,24 @@ class BulkCertificateProcessor:
             else:
                 ipfs_hash = ipfs_result['metadata_hash']
                 ipfs_url = ipfs_result['metadata_url']
-            
+
             # Mint NFT
             mint_result = await self.mint_certificate_nft(
                 participant['wallet_address'],
                 event_id,
                 ipfs_hash
             )
-            
+
             if not mint_result['success']:
                 print(f"NFT minting failed for {participant['name']}: {mint_result.get('error', 'Unknown error')}")
                 return {
                     "participant": participant['name'],
                     "step": "nft_minting",
                     "success": False,
-                    "error": mint_result['error']
+                    "error": mint_result['error'],
+                    "email_sent": False
                 }
-            
+
             # Update database - create ipfs_result structure for compatibility
             ipfs_result_for_db = {
                 'success': ipfs_result['success'] if 'ipfs_result' in locals() and ipfs_result['success'] else False,
@@ -433,7 +435,7 @@ class BulkCertificateProcessor:
                 'image_hash': ipfs_result.get('image_hash', ipfs_hash) if 'ipfs_result' in locals() and ipfs_result['success'] else ipfs_hash,
                 'image_url': ipfs_result.get('image_url', ipfs_url) if 'ipfs_result' in locals() and ipfs_result['success'] else ipfs_url
             }
-            
+
             await self.update_certificate_status(
                 participant['id'],
                 mint_result['token_id'],
@@ -441,7 +443,33 @@ class BulkCertificateProcessor:
                 cert_result['file_path'],
                 ipfs_result_for_db
             )
-            
+
+            # Send email immediately if requested (for background processing)
+            email_sent = False
+            email_error = None
+            if send_email_immediately:
+                try:
+                    print(f"📧 Sending email to {participant['email']}...")
+                    email_result = await asyncio.to_thread(
+                        self.email_service.send_certificate_email,
+                        to_email=participant['email'],
+                        participant_name=participant['name'],
+                        event_name=event_details['name'],
+                        certificate_path=cert_result['file_path'],
+                        contract_address=self.contract_address,
+                        token_id=mint_result['token_id'],
+                        poa_token_id=participant['poa_token_id']
+                    )
+                    email_sent = email_result['success']
+                    if email_sent:
+                        print(f"✅ Email sent successfully to {participant['email']}")
+                    else:
+                        email_error = email_result.get('error', 'Unknown email error')
+                        print(f"❌ Email failed for {participant['email']}: {email_error}")
+                except Exception as e:
+                    email_error = str(e)
+                    print(f"❌ Exception sending email to {participant['email']}: {email_error}")
+
             return {
                 "participant": participant['name'],
                 "success": True,
@@ -449,6 +477,8 @@ class BulkCertificateProcessor:
                 "tx_hash": mint_result['tx_hash'],
                 "certificate_path": cert_result['file_path'],
                 "ipfs_url": ipfs_url,
+                "email_sent": email_sent,
+                "email_error": email_error,
                 "email_data": {
                     "name": participant['name'],
                     "email": participant['email'],
@@ -457,7 +487,7 @@ class BulkCertificateProcessor:
                     "poa_token_id": participant['poa_token_id']
                 }
             }
-            
+
         except Exception as e:
             print(f"Exception in process_single_participant for {participant['name']}: {str(e)}")
             import traceback
@@ -466,7 +496,8 @@ class BulkCertificateProcessor:
                 "participant": participant['name'],
                 "step": "processing",
                 "success": False,
-                "error": str(e)
+                "error": str(e),
+                "email_sent": False
             }
 
     async def process_bulk_certificates(self, event_id, participant_ids=None):
@@ -606,6 +637,9 @@ class BulkCertificateProcessor:
             completed_count = 0
 
             # Process participants one by one with progress updates
+            successful_emails = 0
+            failed_emails = 0
+
             for i, participant in enumerate(participants):
                 try:
                     # Check if task should be cancelled or paused
@@ -613,8 +647,13 @@ class BulkCertificateProcessor:
                         # Check task status through callback mechanism
                         progress_callback(i, total_participants, f"Processing {participant['name']}...")
 
-                    # Process single participant (reuse existing logic)
-                    result = await self.process_single_participant(participant, event_details, event_id)
+                    # Process single participant WITH IMMEDIATE EMAIL SENDING
+                    result = await self.process_single_participant(
+                        participant,
+                        event_details,
+                        event_id,
+                        send_email_immediately=True  # 🔥 Send email immediately!
+                    )
 
                     if result['success']:
                         results.append({
@@ -623,17 +662,33 @@ class BulkCertificateProcessor:
                             "token_id": result['token_id'],
                             "tx_hash": result['tx_hash'],
                             "certificate_path": result['certificate_path'],
+                            "email_sent": result.get('email_sent', False)
                         })
 
-                        # Add to email data
-                        email_data.append(result['email_data'])
+                        # Track email status
+                        if result.get('email_sent', False):
+                            successful_emails += 1
+                        else:
+                            failed_emails += 1
+
                         completed_count += 1
+
+                        # Update progress AFTER email is sent
+                        if progress_callback:
+                            email_status = "✅ Email sent" if result.get('email_sent') else "⚠️ Email failed"
+                            progress_callback(
+                                completed_count,
+                                total_participants,
+                                f"Completed {participant['name']} - {email_status}"
+                            )
                     else:
                         results.append({
                             "participant": result.get('participant', 'Unknown'),
                             "success": False,
-                            "error": result['error']
+                            "error": result['error'],
+                            "email_sent": False
                         })
+                        failed_emails += 1
 
                     # Small delay to prevent rate limiting
                     await asyncio.sleep(2)  # 2 second delay between participants
@@ -642,30 +697,24 @@ class BulkCertificateProcessor:
                     results.append({
                         "participant": participant.get('name', 'Unknown'),
                         "success": False,
-                        "error": str(e)
+                        "error": str(e),
+                        "email_sent": False
                     })
+                    failed_emails += 1
 
-            # Send emails if there are successful certificates
+            # No bulk email sending needed - emails already sent individually!
             email_results = []
-            if email_data:
-                if progress_callback:
-                    progress_callback(completed_count, total_participants, "Sending email notifications...")
-
-                # Use existing email service
-                email_results = await asyncio.to_thread(
-                    self.email_service.send_bulk_certificate_emails,
-                    email_data,
-                    event_details['name'],
-                    self.contract_address
-                )
 
             # Calculate summary
             successful_operations = len([r for r in results if r.get('success', False)])
             failed_operations = len([r for r in results if not r.get('success', False)])
-            successful_emails = len([r for r in email_results if r['result']['success']])
 
             if progress_callback:
-                progress_callback(total_participants, total_participants, "Completed!")
+                progress_callback(
+                    total_participants,
+                    total_participants,
+                    f"✅ Completed! Emails sent: {successful_emails}/{total_participants}"
+                )
 
             return {
                 "success": True,
@@ -673,7 +722,8 @@ class BulkCertificateProcessor:
                     "total_participants": total_participants,
                     "successful_operations": successful_operations,
                     "failed_operations": failed_operations,
-                    "successful_emails": successful_emails
+                    "successful_emails": successful_emails,
+                    "failed_emails": failed_emails
                 },
                 "certificate_results": results,
                 "email_results": email_results

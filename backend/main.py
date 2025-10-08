@@ -11,6 +11,7 @@ import secrets
 import threading
 import time
 import asyncio
+import aiohttp
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -41,6 +42,10 @@ email_queue = asyncio.Queue()
 # Background task tracking
 background_tasks = {}
 task_id_counter = 0
+
+# Telegram verification concurrency control
+telegram_verification_semaphore = asyncio.Semaphore(50)  # Max 50 concurrent verifications
+telegram_verification_log = []  # Track all verification attempts
 
 # Helper function to convert SQL queries for PostgreSQL
 def convert_sql_for_postgres(sql_query, params=None):
@@ -389,20 +394,6 @@ def init_db():
         )
     """)
     
-    # Create table for verified Telegram users
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS telegram_verified_users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER UNIQUE NOT NULL,
-            username TEXT NOT NULL,
-            first_name TEXT,
-            last_name TEXT,
-            verification_token TEXT,
-            verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_checked TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
     # Add new columns to existing participants table if they don't exist
     try:
         cursor.execute("ALTER TABLE participants ADD COLUMN poa_status TEXT DEFAULT 'registered'")
@@ -723,14 +714,29 @@ def generate_certificate(template_path: str, participant_name: str, event_name: 
     except Exception as e:
         raise Exception(f"Failed to generate certificate: {str(e)}")
 
-def send_email(to_email: str, subject: str, body: str):
-    """Queue email for async processing"""
+async def send_email_async(to_email: str, subject: str, body: str):
+    """Queue email for async processing (async version)"""
     email_task = {
         'to_email': to_email,
         'subject': subject,
         'body': body
     }
-    asyncio.create_task(email_queue.put(email_task))
+    await email_queue.put(email_task)
+    print(f"Email queued for: {to_email}")
+
+def send_email(to_email: str, subject: str, body: str):
+    """Queue email for async processing (sync wrapper for backward compatibility)"""
+    email_task = {
+        'to_email': to_email,
+        'subject': subject,
+        'body': body
+    }
+    try:
+        loop = asyncio.get_running_loop()
+        asyncio.create_task(email_queue.put(email_task))
+    except RuntimeError:
+        # No running loop, create task differently
+        asyncio.run(email_queue.put(email_task))
     print(f"Email queued for: {to_email}")
 
 def send_email_sync_old(to_email: str, subject: str, body: str):
@@ -804,54 +810,85 @@ def get_onchain_participants(event_id: int = None):
     print("Skipping on-chain participant fetching - using database-only approach")
     return []
 
-def store_verified_telegram_user(user_id: int, username: str, first_name: str = None, last_name: str = None):
-    """Store verified Telegram user in database"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
+async def store_verified_telegram_user(user_id: int, username: str, first_name: str = None, last_name: str = None):
+    """Store verified Telegram user in database using db_manager"""
     try:
         # Generate verification token
         verification_token = secrets.token_urlsafe(32)
-        
-        # Insert or update user
-        cursor.execute("""
-            INSERT OR REPLACE INTO telegram_verified_users 
-            (user_id, username, first_name, last_name, verification_token, verified_at, last_checked)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        """, (user_id, username, first_name, last_name, verification_token))
-        
-        conn.commit()
-        return verification_token
-    finally:
-        conn.close()
 
-def get_verified_telegram_user(username: str):
-    """Get verified user by username"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
+        # Use INSERT OR REPLACE for SQLite compatibility and ON CONFLICT for PostgreSQL
+        if db_manager.is_postgres:
+            sql = """
+                INSERT INTO telegram_verified_users
+                (user_id, username, first_name, last_name, verification_token, verified_at, last_checked)
+                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    username = EXCLUDED.username,
+                    first_name = EXCLUDED.first_name,
+                    last_name = EXCLUDED.last_name,
+                    verification_token = EXCLUDED.verification_token,
+                    verified_at = CURRENT_TIMESTAMP,
+                    last_checked = CURRENT_TIMESTAMP
+            """
+            params = [user_id, username, first_name, last_name, verification_token]
+        else:
+            sql = """
+                INSERT OR REPLACE INTO telegram_verified_users
+                (user_id, username, first_name, last_name, verification_token, verified_at, last_checked)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """
+            params = [user_id, username, first_name, last_name, verification_token]
+
+        await db_manager.execute_query(sql, params)
+        print(f"Successfully stored user @{username} (ID: {user_id}) in database")
+        return verification_token
+    except Exception as e:
+        print(f"Error storing user @{username}: {e}")
+        raise
+
+async def get_verified_telegram_user(username: str):
+    """Get verified user by username using db_manager"""
     try:
-        cursor.execute("""
+        sql, params = convert_sql_for_postgres("""
             SELECT user_id, username, first_name, last_name, verification_token, verified_at
-            FROM telegram_verified_users 
-            WHERE LOWER(username) = LOWER(?) 
-            ORDER BY verified_at DESC 
+            FROM telegram_verified_users
+            WHERE LOWER(username) = LOWER(?)
+            ORDER BY verified_at DESC
             LIMIT 1
-        """, (username,))
-        result = cursor.fetchone()
-        
+        """, [username])
+
+        result = await db_manager.execute_query(sql, params, fetch=True)
+
         if result:
-            return {
-                'user_id': result[0],
-                'username': result[1],
-                'first_name': result[2],
-                'last_name': result[3],
-                'verification_token': result[4],
-                'verified_at': result[5]
-            }
+            # Handle both SQLite and PostgreSQL result formats
+            if db_manager.is_postgres:
+                row = result[0]  # PostgreSQL returns Record objects
+                user_data = {
+                    'user_id': row['user_id'],
+                    'username': row['username'],
+                    'first_name': row['first_name'],
+                    'last_name': row['last_name'],
+                    'verification_token': row['verification_token'],
+                    'verified_at': row['verified_at']
+                }
+            else:
+                row = result[0]  # SQLite returns tuples
+                user_data = {
+                    'user_id': row[0],
+                    'username': row[1],
+                    'first_name': row[2],
+                    'last_name': row[3],
+                    'verification_token': row[4],
+                    'verified_at': row[5]
+                }
+            print(f"Retrieved user @{username} from database: {user_data['user_id']}")
+            return user_data
+        else:
+            print(f"User @{username} not found in database")
+            return None
+    except Exception as e:
+        print(f"Error retrieving user @{username}: {e}")
         return None
-    finally:
-        conn.close()
 
 def send_telegram_message(chat_id: int, text: str):
     """Send message to Telegram user"""
@@ -982,8 +1019,89 @@ def mint_certificate_nft(wallet_address: str, event_id: int, ipfs_hash: str):
         print(f"Error in mint_certificate_nft: {str(e)}")
         raise Exception(f"Failed to mint Certificate NFT: {str(e)}")
 
+# Async function to process individual /0xday commands
+async def process_0xday_command(user_id: int, username: str, first_name: str, last_name: str):
+    """Process a single /0xday command asynchronously with concurrency control"""
+    log_entry = {
+        'timestamp': datetime.now().isoformat(),
+        'user_id': user_id,
+        'username': username,
+        'first_name': first_name,
+        'status': 'processing'
+    }
+    telegram_verification_log.append(log_entry)
+
+    # Use semaphore to limit concurrent verifications
+    async with telegram_verification_semaphore:
+        try:
+            print(f"🔄 [TELEGRAM] Processing /0xday from user_id={user_id} (@{username}, {first_name})")
+
+            # Check if user is in the group
+            check_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChatMember"
+            check_params = {
+                'chat_id': TELEGRAM_CHAT_ID,
+                'user_id': user_id
+            }
+
+            # Use aiohttp for non-blocking HTTP request with retry logic
+            max_retries = 2
+            for attempt in range(max_retries):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(check_url, params=check_params, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                            check_result = await response.json()
+
+                            if response.status == 200 and check_result.get('ok'):
+                                member_status = check_result.get('result', {}).get('status')
+
+                                if member_status in ['member', 'administrator', 'creator']:
+                                    # User is verified! Store in database
+                                    verification_token = await store_verified_telegram_user(
+                                        user_id, username, first_name, last_name
+                                    )
+
+                                    response_text = "Welcome to the 0x.Day Community"
+                                    send_telegram_message(user_id, response_text)
+                                    log_entry['status'] = 'success_verified'
+                                    print(f"✅ [TELEGRAM] Successfully verified user_id={user_id} (@{username}) - Status: {member_status}")
+                                    return
+
+                                elif member_status in ['left', 'kicked']:
+                                    response_text = f"Please join our community first: {TELEGRAM_GROUP_LINK}"
+                                    send_telegram_message(user_id, response_text)
+                                    log_entry['status'] = 'rejected_not_member'
+                                    print(f"❌ [TELEGRAM] User_id={user_id} (@{username}) not a member - Status: {member_status}")
+                                    return
+
+                            else:
+                                error_desc = check_result.get('description', 'Unknown error')
+                                print(f"⚠️ [TELEGRAM] API error for user_id={user_id} (@{username}): {error_desc}")
+                                if attempt < max_retries - 1:
+                                    await asyncio.sleep(1)
+                                    continue
+                                response_text = "Verification error. Please try again."
+                                send_telegram_message(user_id, response_text)
+                                log_entry['status'] = 'error_api'
+                                return
+                    break
+                except asyncio.TimeoutError:
+                    if attempt < max_retries - 1:
+                        print(f"⏱️ [TELEGRAM] Timeout for user_id={user_id}, retrying...")
+                        await asyncio.sleep(1)
+                        continue
+                    raise
+
+        except Exception as e:
+            log_entry['status'] = 'error_exception'
+            log_entry['error'] = str(e)
+            print(f"❌ [TELEGRAM] Exception for user_id={user_id} (@{username}): {e}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            response_text = "Technical error. Please try again later."
+            send_telegram_message(user_id, response_text)
+
 # Bot polling function for background thread
-def bot_polling_thread():
+async def bot_polling_async():
     """Background thread to continuously poll for Telegram bot updates"""
     if not TELEGRAM_BOT_TOKEN:
         print("No Telegram bot token configured, skipping bot polling")
@@ -1005,70 +1123,49 @@ def bot_polling_thread():
             
             if result.get('ok'):
                 updates = result.get('result', [])
-                
+
+                # Collect all /0xday commands for concurrent processing
+                command_tasks = []
+
                 for update in updates:
                     offset = update['update_id'] + 1
-                    
+
                     if 'message' in update:
                         message = update['message']
                         text = message.get('text', '').strip().lower()
                         user = message.get('from', {})
                         chat = message.get('chat', {})
-                        
+
                         # Handle /0xday command
                         if text in ['/0xday', '/0xday@certs0xday_bot']:
                             user_id = user.get('id')
                             username = user.get('username', '')
                             first_name = user.get('first_name', '')
                             last_name = user.get('last_name', '')
-                            
-                            print(f"Processing /0xday command from user {user_id} (@{username})")
-                            
-                            # Check if user is in the group
-                            try:
-                                check_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getChatMember"
-                                check_params = {
-                                    'chat_id': TELEGRAM_CHAT_ID,
-                                    'user_id': user_id
-                                }
-                                
-                                check_response = requests.get(check_url, params=check_params, timeout=10)
-                                check_result = check_response.json()
-                                
-                                if check_response.status_code == 200 and check_result.get('ok'):
-                                    member_status = check_result.get('result', {}).get('status')
-                                    
-                                    if member_status in ['member', 'administrator', 'creator']:
-                                        # User is verified! Store in database
-                                        verification_token = store_verified_telegram_user(
-                                            user_id, username, first_name, last_name
-                                        )
-                                        
-                                        response_text = "Welcome to the 0x.Day Community"
-                                        
-                                        send_telegram_message(user_id, response_text)
-                                        print(f"Successfully verified and stored user: @{username} (ID: {user_id})")
-                                        
-                                    elif member_status in ['left', 'kicked']:
-                                        response_text = f"Please join our community first: {TELEGRAM_GROUP_LINK}"
-                                        
-                                        send_telegram_message(user_id, response_text)
-                                        print(f"User @{username} not a member (status: {member_status})")
-                                        
-                                else:
-                                    error_desc = check_result.get('description', 'Unknown error')
-                                    print(f"Error checking membership for @{username}: {error_desc}")
-                                    
-                                    response_text = "Verification error. Please try again."
-                                    
-                                    send_telegram_message(user_id, response_text)
-                                    
-                            except Exception as e:
-                                print(f"Error during membership verification for @{username}: {e}")
-                                
-                                response_text = "Technical error. Please try again later."
-                                
-                                send_telegram_message(user_id, response_text)
+
+                            # Create async task for concurrent processing
+                            task = asyncio.create_task(
+                                process_0xday_command(user_id, username, first_name, last_name)
+                            )
+                            command_tasks.append(task)
+
+                # Process all /0xday commands concurrently
+                if command_tasks:
+                    print(f"📊 [TELEGRAM BOT] Processing {len(command_tasks)} /0xday commands concurrently...")
+                    try:
+                        results = await asyncio.gather(*command_tasks, return_exceptions=True)
+
+                        # Log results
+                        success_count = sum(1 for r in results if not isinstance(r, Exception))
+                        error_count = len(results) - success_count
+                        print(f"✅ [TELEGRAM BOT] Completed {len(command_tasks)} commands - Success: {success_count}, Errors: {error_count}")
+
+                        # Log any exceptions
+                        for i, result in enumerate(results):
+                            if isinstance(result, Exception):
+                                print(f"❌ [TELEGRAM BOT] Task {i} failed with exception: {result}")
+                    except Exception as e:
+                        print(f"❌ [TELEGRAM BOT] Critical error in concurrent command processing: {e}")
             
         except requests.exceptions.Timeout:
             print("Bot polling timeout, retrying...")
@@ -1080,14 +1177,35 @@ def bot_polling_thread():
             print(f"Bot polling error: {e}")
             time.sleep(10)
 
+def bot_polling_thread():
+    """Wrapper function to run async bot polling in a thread"""
+    # Create new event loop for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(bot_polling_async())
+    finally:
+        loop.close()
+
 # API endpoints
 @app.on_event("startup")
 async def startup_event():
     global db_pool
-    
-    # Initialize database connection pool
+
+    print("🚀 [STARTUP] Starting application...")
+
+    # Initialize PostgreSQL connection pool if using PostgreSQL
+    if db_manager.is_postgres:
+        try:
+            await db_manager._init_postgres_pool()
+            print("✅ [STARTUP] PostgreSQL connection pool ready")
+        except Exception as e:
+            print(f"❌ [STARTUP] Failed to initialize PostgreSQL pool: {e}")
+            raise
+
+    # Initialize old SQLite database pool (for backward compatibility)
     db_pool = DatabasePool(DB_PATH, max_connections=20)
-    
+
     # Initialize database schema (sync) - disabled for new migration system
     # init_db()
     
@@ -1122,12 +1240,27 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     global db_pool
+
+    print("🔴 [SHUTDOWN] Starting graceful shutdown...")
+
+    # Close PostgreSQL connection pool
+    if db_manager.is_postgres:
+        try:
+            await db_manager.close_pool()
+            print("✅ [SHUTDOWN] PostgreSQL connection pool closed")
+        except Exception as e:
+            print(f"⚠️ [SHUTDOWN] Error closing PostgreSQL pool: {e}")
+
+    # Close old SQLite pool if exists
     if db_pool:
         await db_pool.close_pool()
+
     # Stop all 25 email workers
-    print("Shutting down email workers...")
+    print("🔴 [SHUTDOWN] Stopping email workers...")
     for i in range(25):
         await email_queue.put(None)
+
+    print("✅ [SHUTDOWN] Graceful shutdown complete")
     print("Email workers shutdown initiated")
 
 @app.post("/organizer/login")
@@ -1219,11 +1352,27 @@ async def verify_otp(request: OrganizerVerifyOTP):
             """
         
         await db_manager.execute_query(update_sql, [session_token, session_id])
-        
+
+        # Create session in organizer_sessions table
+        if db_manager.is_postgres:
+            # Calculate expiry time (7 days from now)
+            session_insert = """
+                INSERT INTO organizer_sessions (session_token, organizer_email, is_active, created_at, expires_at)
+                VALUES ($1, $2, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '7 days')
+            """
+        else:
+            session_insert = """
+                INSERT INTO organizer_sessions (session_token, organizer_email, is_active, created_at, expires_at)
+                VALUES (?, ?, 1, datetime('now'), datetime('now', '+7 days'))
+            """
+
+        await db_manager.execute_query(session_insert, [session_token, email])
+        print(f"Created session for {email} with token {session_token[:20]}...")
+
         # Check if this is a root organizer (for now, all root emails can login)
         root_emails = ["sameer@0x.day", "shivani@0x.day", "saijadhav@0x.day", "naresh@0x.day"]
         is_root = email in root_emails
-        
+
         return {
             "message": "Login successful",
             "session_token": session_token,
@@ -1242,110 +1391,149 @@ async def add_organizer_email(request: OrganizerAddEmail, session_token: str = N
     """Add new organizer email (requires valid session)"""
     if not session_token:
         raise HTTPException(status_code=401, detail="Session token required")
-    
+
     # Verify session
     organizer_email = await verify_session_token(session_token)
     if not organizer_email:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
-    
+
     new_email = request.email.lower().strip()
-    
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
+
     try:
         # Check if email already exists
-        cursor.execute("SELECT id FROM organizer_emails WHERE email = ?", (new_email,))
-        if cursor.fetchone():
-            raise HTTPException(status_code=400, detail="Email already exists")
-        
-        # Add new email
-        cursor.execute("""
-            INSERT INTO organizer_emails (email, is_root, created_by)
-            VALUES (?, FALSE, (SELECT id FROM organizer_emails WHERE email = ?))
-        """, (new_email, organizer_email))
-        
-        conn.commit()
-        
+        if db_manager.is_postgres:
+            check_query = "SELECT email, is_active, is_root FROM organizers WHERE email = $1"
+        else:
+            check_query = "SELECT email, is_active, is_root FROM organizers WHERE email = ?"
+
+        existing = await db_manager.execute_query(check_query, [new_email], fetch=True)
+
+        if existing:
+            # Check if it's an inactive email (deleted)
+            existing_record = existing[0]
+            is_active = existing_record['is_active'] if isinstance(existing_record, dict) else existing_record[1]
+            is_root = existing_record['is_root'] if isinstance(existing_record, dict) else existing_record[2]
+
+            if is_active:
+                # Email already exists and is active
+                raise HTTPException(status_code=400, detail="Email already exists")
+            else:
+                # Reactivate the email
+                if db_manager.is_postgres:
+                    update_query = "UPDATE organizers SET is_active = TRUE WHERE email = $1"
+                else:
+                    update_query = "UPDATE organizers SET is_active = 1 WHERE email = ?"
+
+                await db_manager.execute_query(update_query, [new_email])
+                print(f"Reactivated organizer email: {new_email}")
+                return {"message": f"Email {new_email} reactivated successfully"}
+
+        # Add new email (doesn't exist at all)
+        if db_manager.is_postgres:
+            insert_query = """
+                INSERT INTO organizers (email, is_root, is_active)
+                VALUES ($1, FALSE, TRUE)
+            """
+        else:
+            insert_query = """
+                INSERT INTO organizers (email, is_root, is_active)
+                VALUES (?, 0, 1)
+            """
+
+        await db_manager.execute_query(insert_query, [new_email])
+
         return {"message": f"Email {new_email} added successfully"}
-        
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Email already exists")
-    finally:
-        conn.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error adding organizer email: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add email: {str(e)}")
 
 @app.post("/organizer/remove-email")
 async def remove_organizer_email(request: OrganizerRemoveEmail, session_token: str = None):
     """Remove organizer email (requires valid session, cannot remove root emails)"""
     if not session_token:
         raise HTTPException(status_code=401, detail="Session token required")
-    
+
     # Verify session
     organizer_email = await verify_session_token(session_token)
     if not organizer_email:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
-    
+
     email_to_remove = request.email.lower().strip()
-    
+
     # Check if trying to remove a root email
     if is_root_email(email_to_remove):
         raise HTTPException(status_code=403, detail="Cannot remove root organizer email")
-    
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
+
     try:
-        # Remove email
-        cursor.execute(
-            "UPDATE organizer_emails SET is_active = FALSE WHERE email = ? AND is_root = FALSE",
-            (email_to_remove,)
-        )
-        
-        if cursor.rowcount == 0:
+        # Remove email (set is_active to FALSE)
+        if db_manager.is_postgres:
+            update_query = "UPDATE organizers SET is_active = FALSE WHERE email = $1 AND is_root = FALSE"
+        else:
+            update_query = "UPDATE organizers SET is_active = 0 WHERE email = ? AND is_root = 0"
+
+        await db_manager.execute_query(update_query, [email_to_remove])
+
+        # Check if any row was affected
+        check_query = "SELECT email FROM organizers WHERE email = $1" if db_manager.is_postgres else "SELECT email FROM organizers WHERE email = ?"
+        result = await db_manager.execute_query(check_query, [email_to_remove], fetch=True)
+
+        if not result:
             raise HTTPException(status_code=404, detail="Email not found or is protected")
-        
-        conn.commit()
-        
+
         return {"message": f"Email {email_to_remove} removed successfully"}
-        
-    finally:
-        conn.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error removing organizer email: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to remove email: {str(e)}")
 
 @app.get("/organizer/emails")
 async def get_organizer_emails(session_token: str = None):
     """Get list of all organizer emails (requires valid session)"""
     if not session_token:
         raise HTTPException(status_code=401, detail="Session token required")
-    
+
     # Verify session
     organizer_email = await verify_session_token(session_token)
     if not organizer_email:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
-    
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
+
     try:
-        cursor.execute("""
+        query = """
             SELECT email, is_root, created_at, is_active
-            FROM organizer_emails
+            FROM organizers
             WHERE is_active = TRUE
             ORDER BY is_root DESC, created_at ASC
-        """)
-        
+        """
+
+        result = await db_manager.execute_query(query, fetch=True)
+
         emails = []
-        for row in cursor.fetchall():
-            emails.append({
-                "email": row[0],
-                "is_root": bool(row[1]),
-                "created_at": row[2],
-                "is_active": bool(row[3])
-            })
-        
+        for row in result:
+            if isinstance(row, dict):
+                emails.append({
+                    "email": row['email'],
+                    "is_root": bool(row['is_root']),
+                    "created_at": row['created_at'],
+                    "is_active": bool(row['is_active'])
+                })
+            else:
+                emails.append({
+                    "email": row[0],
+                    "is_root": bool(row[1]),
+                    "created_at": row[2],
+                    "is_active": bool(row[3])
+                })
+
         return {"emails": emails}
-        
-    finally:
-        conn.close()
+
+    except Exception as e:
+        print(f"Error fetching organizer emails: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch organizer emails: {str(e)}")
 
 @app.post("/create_event")
 async def create_event(event: EventCreate, organizer_id: int = 1):
@@ -1590,9 +1778,9 @@ async def telegram_webhook(update: dict):
                         
                         if member_status in ['member', 'administrator', 'creator']:
                             # User is verified! Store in database
-                            verification_token = store_verified_telegram_user(
+                            verification_token = asyncio.run(store_verified_telegram_user(
                                 user_id, username, first_name, last_name
-                            )
+                            ))
                             
                             response_text = f"""✅ <b>Verification Successful!</b>
                             
@@ -1674,9 +1862,23 @@ async def verify_telegram_membership(verification: TelegramVerification):
     print(f"Verifying Telegram user: @{telegram_username}")
     
     try:
-        # Step 1: Check if user exists in our verified users database
-        verified_user = get_verified_telegram_user(telegram_username)
-        
+        # Step 1: Check if user exists in our verified users database (with retry)
+        verified_user = None
+        max_retries = 3
+        retry_delay = 1  # seconds
+
+        for attempt in range(max_retries):
+            verified_user = await get_verified_telegram_user(telegram_username)
+            if verified_user:
+                break
+
+            if attempt < max_retries - 1:
+                print(f"User @{telegram_username} not found, retrying in {retry_delay} seconds... (attempt {attempt + 1}/{max_retries})")
+                import asyncio
+                await asyncio.sleep(retry_delay)
+            else:
+                print(f"User @{telegram_username} not found after {max_retries} attempts")
+
         if not verified_user:
             raise HTTPException(
                 status_code=400,
@@ -1700,16 +1902,11 @@ async def verify_telegram_membership(verification: TelegramVerification):
             
             if member_status in ['member', 'administrator', 'creator']:
                 # Update last_checked timestamp
-                conn = sqlite3.connect(DB_PATH)
-                cursor = conn.cursor()
-                try:
-                    cursor.execute(
-                        "UPDATE telegram_verified_users SET last_checked = CURRENT_TIMESTAMP WHERE user_id = ?",
-                        (verified_user['user_id'],)
-                    )
-                    conn.commit()
-                finally:
-                    conn.close()
+                update_sql, update_params = convert_sql_for_postgres(
+                    "UPDATE telegram_verified_users SET last_checked = CURRENT_TIMESTAMP WHERE user_id = ?",
+                    [verified_user['user_id']]
+                )
+                await db_manager.execute_query(update_sql, update_params)
                 
                 print(f"Verification successful for @{telegram_username} (status: {member_status})")
                 
@@ -1723,13 +1920,11 @@ async def verify_telegram_membership(verification: TelegramVerification):
                 
             elif member_status in ['left', 'kicked']:
                 # Remove from verified users since they left
-                conn = sqlite3.connect(DB_PATH)
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("DELETE FROM telegram_verified_users WHERE user_id = ?", (verified_user['user_id'],))
-                    conn.commit()
-                finally:
-                    conn.close()
+                delete_sql, delete_params = convert_sql_for_postgres(
+                    "DELETE FROM telegram_verified_users WHERE user_id = ?",
+                    [verified_user['user_id']]
+                )
+                await db_manager.execute_query(delete_sql, delete_params)
                 
                 raise HTTPException(
                     status_code=400,
@@ -1968,6 +2163,9 @@ async def bulk_mint_poa(event_id: int, request: dict):
             "metadata_url": f"https://gateway.pinata.cloud/ipfs/{ipfs_hash}"
         }
         
+    except HTTPException:
+        # Re-raise HTTPException as-is to preserve error details
+        raise
     except Exception as e:
         print(f"Error in bulk_mint_poa: {e}")
         raise HTTPException(status_code=500, detail=f"Bulk mint preparation failed: {str(e)}")
@@ -3159,6 +3357,8 @@ async def background_certificate_generation(task_id: str, event_id: int):
             background_tasks[task_id]["current_step"] = "All certificates generated and emails sent!"
             background_tasks[task_id]["completed"] = result["summary"]["successful_operations"]
             background_tasks[task_id]["failed"] = result["summary"]["failed_operations"]
+            background_tasks[task_id]["successful_emails"] = result["summary"].get("successful_emails", 0)
+            background_tasks[task_id]["failed_emails"] = result["summary"].get("failed_emails", 0)
         else:
             background_tasks[task_id]["status"] = "failed"
             background_tasks[task_id]["error"] = result["error"]
@@ -3572,6 +3772,21 @@ async def debug_upload_template(
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+@app.get("/telegram/verification_logs")
+async def get_telegram_verification_logs(limit: int = 100):
+    """Get recent telegram verification logs for debugging - NO /0xday command goes unseen"""
+    return {
+        "total_logs": len(telegram_verification_log),
+        "recent_logs": telegram_verification_log[-limit:] if telegram_verification_log else [],
+        "statistics": {
+            "success": sum(1 for log in telegram_verification_log if log.get('status') == 'success_verified'),
+            "rejected": sum(1 for log in telegram_verification_log if log.get('status') == 'rejected_not_member'),
+            "errors": sum(1 for log in telegram_verification_log if 'error' in log.get('status', '')),
+            "processing": sum(1 for log in telegram_verification_log if log.get('status') == 'processing'),
+        },
+        "message": "All /0xday commands are logged here - nothing is missed"
+    }
 
 if __name__ == "__main__":
     import uvicorn

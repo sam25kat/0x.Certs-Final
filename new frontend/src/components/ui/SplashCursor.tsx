@@ -56,12 +56,12 @@ export default function SplashCursor({
   SIM_RESOLUTION = 128,
   DYE_RESOLUTION = 1440,
   CAPTURE_RESOLUTION = 512,
-  DENSITY_DISSIPATION = 3.5,
+  DENSITY_DISSIPATION = 4.5,
   VELOCITY_DISSIPATION = 2,
   PRESSURE = 0.1,
   PRESSURE_ITERATIONS = 20,
   CURL = 3,
-  SPLAT_RADIUS = 0.2,
+  SPLAT_RADIUS = 0.16,
   SPLAT_FORCE = 6000,
   SHADING = true,
   COLOR_UPDATE_SPEED = 10,
@@ -1135,8 +1135,8 @@ export default function SplashCursor({
       const hueVariation = (Math.random() - 0.5) * 40; // ±20 degrees variation
       const finalHue = (baseHue + hueVariation) / 360;
       
-      const saturation = 0.3 + Math.random() * 0.3; // 30-60% saturation (less saturated)
-      const brightness = 0.15 + Math.random() * 0.25; // 15-40% brightness (much dimmer)
+      const saturation = 0.25 + Math.random() * 0.25; // 25-50% saturation (less saturated)
+      const brightness = 0.10 + Math.random() * 0.18; // 10-28% brightness (dimmer)
       
       const c = HSVtoRGB(finalHue, saturation, brightness);
       

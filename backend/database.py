@@ -11,6 +11,8 @@ class DatabaseManager:
     def __init__(self):
         self._database_url = None
         self._is_postgres = None
+        self._pg_pools = {}  # Store pools per event loop
+        self._pool_locks = {}  # Store locks per event loop
 
     @property
     def database_url(self):
@@ -23,31 +25,86 @@ class DatabaseManager:
         if self._is_postgres is None:
             self._is_postgres = self.database_url.startswith("postgresql")
         return self._is_postgres
-        
+
+    def _get_loop_id(self):
+        """Get current event loop ID for pool management"""
+        try:
+            loop = asyncio.get_running_loop()
+            return id(loop)
+        except RuntimeError:
+            return None
+
+    async def _init_postgres_pool(self):
+        """Initialize PostgreSQL connection pool (one per event loop)"""
+        loop_id = self._get_loop_id()
+        if loop_id is None:
+            raise RuntimeError("No running event loop")
+
+        if loop_id not in self._pg_pools:
+            # Create lock for this loop if it doesn't exist
+            if loop_id not in self._pool_locks:
+                self._pool_locks[loop_id] = asyncio.Lock()
+
+            async with self._pool_locks[loop_id]:
+                if loop_id not in self._pg_pools:  # Double-check after acquiring lock
+                    parsed = urlparse(self.database_url)
+                    try:
+                        pool = await asyncpg.create_pool(
+                            host=parsed.hostname,
+                            port=parsed.port or 5432,
+                            user=parsed.username,
+                            password=parsed.password,
+                            database=parsed.path[1:] if parsed.path.startswith('/') else parsed.path,
+                            min_size=5,
+                            max_size=50,
+                            command_timeout=60,
+                            timeout=30
+                        )
+                        self._pg_pools[loop_id] = pool
+                        print(f"✅ PostgreSQL connection pool initialized for loop {loop_id} (min=5, max=50)")
+                    except Exception as e:
+                        print(f"❌ Error initializing PostgreSQL pool: {e}")
+                        raise
+
     async def get_connection(self):
         """Get database connection - supports both SQLite and PostgreSQL"""
         if self.is_postgres:
             return await self._get_postgres_connection()
         else:
             return await self._get_sqlite_connection()
-            
+
     async def _get_postgres_connection(self):
-        """PostgreSQL connection"""
-        # Parse the URL and modify for asyncpg
-        parsed = urlparse(self.database_url)
-        connection_kwargs = {
-            'host': parsed.hostname,
-            'port': parsed.port,
-            'user': parsed.username,
-            'password': parsed.password,
-            'database': parsed.path[1:] if parsed.path.startswith('/') else parsed.path
-        }
-        return await asyncpg.connect(**connection_kwargs)
-        
+        """PostgreSQL connection from pool"""
+        loop_id = self._get_loop_id()
+        if loop_id not in self._pg_pools:
+            await self._init_postgres_pool()
+        return await self._pg_pools[loop_id].acquire()
+
     async def _get_sqlite_connection(self):
         """SQLite connection"""
         db_path = self.database_url.replace("sqlite:///", "")
         return await aiosqlite.connect(db_path)
+
+    async def close_pool(self):
+        """Close PostgreSQL connection pools for current event loop"""
+        loop_id = self._get_loop_id()
+        if loop_id and loop_id in self._pg_pools:
+            await self._pg_pools[loop_id].close()
+            del self._pg_pools[loop_id]
+            if loop_id in self._pool_locks:
+                del self._pool_locks[loop_id]
+            print(f"PostgreSQL connection pool closed for loop {loop_id}")
+
+    async def close_all_pools(self):
+        """Close all PostgreSQL connection pools"""
+        for loop_id, pool in list(self._pg_pools.items()):
+            try:
+                await pool.close()
+                print(f"PostgreSQL connection pool closed for loop {loop_id}")
+            except Exception as e:
+                print(f"Error closing pool for loop {loop_id}: {e}")
+        self._pg_pools.clear()
+        self._pool_locks.clear()
         
     async def execute_query(self, query, params=None, fetch=False):
         """Execute query with proper handling for both database types"""
@@ -67,7 +124,16 @@ class DatabaseManager:
                     await conn.commit()
                     return cursor.lastrowid
         finally:
-            await conn.close()
+            # Release connection back to pool (PostgreSQL) or close (SQLite)
+            if self.is_postgres:
+                loop_id = self._get_loop_id()
+                if loop_id and loop_id in self._pg_pools:
+                    await self._pg_pools[loop_id].release(conn)
+                else:
+                    # Fallback: close connection if pool doesn't exist
+                    await conn.close()
+            else:
+                await conn.close()
 
 # Global database manager instance
 db_manager = DatabaseManager()
@@ -180,6 +246,18 @@ async def init_database_tables():
                 is_active BOOLEAN DEFAULT TRUE,
                 is_default BOOLEAN DEFAULT FALSE
             )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS telegram_verified_users (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE NOT NULL,
+                username VARCHAR(255) NOT NULL,
+                first_name VARCHAR(255),
+                last_name VARCHAR(255),
+                verification_token VARCHAR(255),
+                verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_checked TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
             """
         ]
     else:
@@ -264,6 +342,18 @@ async def init_database_tables():
                 is_active INTEGER DEFAULT 1,
                 is_default INTEGER DEFAULT 0
             )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS telegram_verified_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER UNIQUE NOT NULL,
+                username TEXT NOT NULL,
+                first_name TEXT,
+                last_name TEXT,
+                verification_token TEXT,
+                verified_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                last_checked TEXT DEFAULT CURRENT_TIMESTAMP
+            )
             """
         ]
     
@@ -286,9 +376,12 @@ async def migrate_database():
             "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_tx_hash VARCHAR(66)",
             "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_path VARCHAR(255)",
             "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_ipfs_hash VARCHAR(255)",
-            "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_metadata_uri VARCHAR(500)"
+            "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_metadata_uri VARCHAR(500)",
+            # Add missing columns to organizers table
+            "ALTER TABLE organizers ADD COLUMN IF NOT EXISTS is_root BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE organizers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE"
         ]
-        
+
         for query in migration_queries:
             try:
                 await db_manager.execute_query(query)
@@ -303,11 +396,11 @@ async def ensure_root_organizers():
     """Ensure root organizers exist in database"""
     root_organizers = [
         "sameer@0x.day",
-        "shivani@0x.day", 
+        "shivani@0x.day",
         "saijadhav@0x.day",
         "naresh@0x.day"
     ]
-    
+
     try:
         for email in root_organizers:
             # Check if organizer already exists
@@ -323,23 +416,34 @@ async def ensure_root_organizers():
                     [email],
                     fetch=True
                 )
-            
+
             if not existing:
-                # Create root organizer
+                # Create root organizer with is_root = TRUE
                 if db_manager.is_postgres:
                     await db_manager.execute_query(
-                        "INSERT INTO organizers (email, created_at) VALUES ($1, CURRENT_TIMESTAMP)",
+                        "INSERT INTO organizers (email, is_root, is_active, created_at) VALUES ($1, TRUE, TRUE, CURRENT_TIMESTAMP)",
                         [email]
                     )
                 else:
                     await db_manager.execute_query(
-                        "INSERT INTO organizers (email, created_at) VALUES (?, CURRENT_TIMESTAMP)",
+                        "INSERT INTO organizers (email, is_root, is_active, created_at) VALUES (?, 1, 1, CURRENT_TIMESTAMP)",
                         [email]
                     )
                 print(f"Root organizer created: {email}")
             else:
-                print(f"Root organizer already exists: {email}")
-                
+                # Update existing organizer to set is_root = TRUE
+                if db_manager.is_postgres:
+                    await db_manager.execute_query(
+                        "UPDATE organizers SET is_root = TRUE, is_active = TRUE WHERE email = $1",
+                        [email]
+                    )
+                else:
+                    await db_manager.execute_query(
+                        "UPDATE organizers SET is_root = 1, is_active = 1 WHERE email = ?",
+                        [email]
+                    )
+                print(f"Root organizer updated: {email}")
+
     except Exception as e:
         print(f"Error ensuring root organizers: {e}")
 

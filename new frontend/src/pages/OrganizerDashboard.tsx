@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { api, type Event, type Participant } from '@/lib/api';
 import { API_BASE_URL } from '../lib/api';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '@/config/wagmi';
-import { Plus, Users, Award, Send, Download, BarChart3, Copy, Mail, Trash2, Settings, Shield, Factory, Wallet, FileText, BarChart, Calendar, CalendarIcon } from 'lucide-react';
+import { Plus, Users, Award, Send, Download, BarChart3, Copy, Mail, Trash2, Settings, Shield, Factory, Wallet, FileText, BarChart, Calendar, CalendarIcon, Loader2 } from 'lucide-react';
 import { ProgressDialog } from '@/components/ui/progress-dialog';
 import {
   Dialog,
@@ -59,6 +59,9 @@ export default function OrganizerDashboard() {
   const [showEmailManagement, setShowEmailManagement] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [organizerEmails, setOrganizerEmails] = useState<OrganizerEmail[]>([]);
+  const [loadingEmails, setLoadingEmails] = useState(false);
+  const [addingEmail, setAddingEmail] = useState(false);
+  const [removingEmail, setRemovingEmail] = useState<string | null>(null);
   
   // Event management state (existing)
   const [showCreateEvent, setShowCreateEvent] = useState(false);
@@ -77,6 +80,7 @@ export default function OrganizerDashboard() {
   // Participant selection state for batch operations
   const [selectedParticipants, setSelectedParticipants] = useState<Set<number>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number>(0);
+  const [selectNext25Filter, setSelectNext25Filter] = useState<'all' | 'poa_minted' | 'poa_unminted' | 'poa_transferred'>('all');
   const [participants, setParticipants] = useState<{[key: number]: Participant[]}>({});
 
   // Background certificate generation state
@@ -100,6 +104,7 @@ export default function OrganizerDashboard() {
     eventId: null,
     eventName: ''
   });
+  const [isDeletingEvent, setIsDeletingEvent] = useState(false);
 
   // Search state for participants
   const [participantSearchQuery, setParticipantSearchQuery] = useState<string>('');
@@ -269,26 +274,54 @@ export default function OrganizerDashboard() {
 
   const loadOrganizerEmails = async () => {
     if (!session) return;
-    
+
     try {
+      setLoadingEmails(true);
       const response = await fetch(`${API_BASE_URL}/organizer/emails?session_token=${session.sessionToken}`);
       const data = await response.json();
-      
+
       if (response.ok) {
-        setOrganizerEmails(data.emails);
+        setOrganizerEmails(data.emails || []);
+      } else if (response.status === 401) {
+        // Unauthorized - session expired or invalid
+        toast({
+          title: "Unauthorized",
+          description: "Your session has expired. Please login again.",
+          variant: "destructive",
+          duration: 5000,
+        });
+        // Close the dialog and clear session
+        setShowEmailManagement(false);
+        setSession(null);
+        localStorage.removeItem('organizer_session');
+      } else {
+        // Other errors
+        toast({
+          title: "Failed to load emails",
+          description: data.detail || "Could not fetch organizer email list",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error('Failed to load organizer emails:', error);
+      toast({
+        title: "Failed to load emails",
+        description: "Could not fetch organizer email list",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingEmails(false);
     }
   };
 
   const handleAddEmail = async () => {
-    if (!newEmail.trim() || !session) return;
+    if (!newEmail.trim() || !session || addingEmail) return;
 
     try {
+      setAddingEmail(true);
       const response = await fetch(`${API_BASE_URL}/organizer/add-email?session_token=${session.sessionToken}`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ email: newEmail.trim() }),
@@ -304,7 +337,7 @@ export default function OrganizerDashboard() {
         title: "Email added",
         description: data.message,
       });
-      
+
       setNewEmail('');
       loadOrganizerEmails();
     } catch (error: any) {
@@ -313,16 +346,19 @@ export default function OrganizerDashboard() {
         description: error.message,
         variant: "destructive",
       });
+    } finally {
+      setAddingEmail(false);
     }
   };
 
   const handleRemoveEmail = async (email: string) => {
-    if (!session) return;
+    if (!session || removingEmail) return;
 
     try {
+      setRemovingEmail(email);
       const response = await fetch(`${API_BASE_URL}/organizer/remove-email?session_token=${session.sessionToken}`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ email }),
@@ -338,7 +374,7 @@ export default function OrganizerDashboard() {
         title: "Email removed",
         description: data.message,
       });
-      
+
       loadOrganizerEmails();
     } catch (error: any) {
       toast({
@@ -346,8 +382,17 @@ export default function OrganizerDashboard() {
         description: error.message,
         variant: "destructive",
       });
+    } finally {
+      setRemovingEmail(null);
     }
   };
+
+  // Load organizer emails when dialog opens
+  useEffect(() => {
+    if (showEmailManagement && session) {
+      loadOrganizerEmails();
+    }
+  }, [showEmailManagement, session]);
 
   // Event management functions (full implementation)
   const { data: events = [], isLoading: eventsLoading, refetch: refetchEvents } = useQuery({
@@ -357,7 +402,8 @@ export default function OrganizerDashboard() {
   });
 
   const [expandedEvents, setExpandedEvents] = useState<{[key: number]: boolean}>({});
-  
+  const [loadingParticipants, setLoadingParticipants] = useState<{[key: number]: boolean}>({});
+
   // Template management state
   const [showTemplateManager, setShowTemplateManager] = useState(false);
   const [templates, setTemplates] = useState<any[]>([]);
@@ -557,11 +603,16 @@ export default function OrganizerDashboard() {
   // Toggle participants view
   const toggleParticipants = async (eventId: number) => {
     const isExpanded = expandedEvents[eventId];
-    
+
     if (!isExpanded) {
-      await loadParticipants(eventId);
+      setLoadingParticipants(prev => ({...prev, [eventId]: true}));
+      try {
+        await loadParticipants(eventId);
+      } finally {
+        setLoadingParticipants(prev => ({...prev, [eventId]: false}));
+      }
     }
-    
+
     setExpandedEvents(prev => ({...prev, [eventId]: !isExpanded}));
   };
 
@@ -588,12 +639,29 @@ export default function OrganizerDashboard() {
 
   const handleSelectNext25 = (eventId: number) => {
     const eventParticipants = participants[eventId] || [];
-    const remaining = eventParticipants.slice(lastSelectedIndex);
+
+    // Filter participants based on selected filter
+    let filteredParticipants = eventParticipants;
+    if (selectNext25Filter === 'poa_minted') {
+      // POA minted but NOT transferred
+      filteredParticipants = eventParticipants.filter(p => p.poa_status === 'minted');
+    } else if (selectNext25Filter === 'poa_unminted') {
+      // POA not minted (includes null, undefined, 'not_minted', or any non-minted/non-transferred status)
+      filteredParticipants = eventParticipants.filter(p =>
+        !p.poa_status || p.poa_status === 'not_minted' || (p.poa_status !== 'minted' && p.poa_status !== 'transferred')
+      );
+    } else if (selectNext25Filter === 'poa_transferred') {
+      // POA has been transferred
+      filteredParticipants = eventParticipants.filter(p => p.poa_status === 'transferred');
+    }
+    // 'all' filter - no filtering needed
+
+    const remaining = filteredParticipants.slice(lastSelectedIndex);
     const next25 = remaining.slice(0, 25);
-    
+
     setSelectedParticipants(new Set(next25.map(p => p.id)));
     setLastSelectedIndex(prev => prev + next25.length);
-    
+
     if (next25.length < 25) {
       // Reset for next round
       setLastSelectedIndex(0);
@@ -675,15 +743,62 @@ export default function OrganizerDashboard() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        let errorMessage = 'Failed to prepare bulk mint';
+
+        try {
+          const error = await response.json();
+          console.log('[DEBUG] Bulk mint error response:', error);
+
+          // Extract detailed error message from various error formats
+          if (error.detail) {
+            if (typeof error.detail === 'string') {
+              errorMessage = error.detail;
+              console.log('[DEBUG] Error detail string:', errorMessage);
+
+              // Try to extract JSON error from the string
+              // Pattern: "Failed to upload metadata to IPFS: {"error":{"reason":"FORBIDDEN","details":"..."}}"
+              const jsonMatch = error.detail.match(/\{.*\}$/);
+              if (jsonMatch) {
+                console.log('[DEBUG] Found JSON in error:', jsonMatch[0]);
+                try {
+                  const parsedError = JSON.parse(jsonMatch[0]);
+                  console.log('[DEBUG] Parsed error:', parsedError);
+                  if (parsedError.error && parsedError.error.reason) {
+                    errorMessage = `IPFS Account Error: ${parsedError.error.details}`;
+                    console.log('[DEBUG] Final error message:', errorMessage);
+                  }
+                } catch (parseErr) {
+                  console.log('[DEBUG] Failed to parse JSON:', parseErr);
+                }
+              }
+            } else if (error.detail.error) {
+              errorMessage = error.detail.error;
+            }
+          } else if (error.error) {
+            errorMessage = error.error;
+          }
+        } catch (parseError) {
+          console.log('[DEBUG] Error parsing response:', parseError);
+          errorMessage = `Failed to prepare bulk mint (HTTP ${response.status})`;
+        }
+
+        console.log('[DEBUG] Setting error in progress dialog:', errorMessage);
+
         setProgressDialog(prev => ({
           ...prev,
-          steps: prev.steps.map(step => 
-            step.id === 'prepare' 
-              ? { ...step, status: 'error', error: error.detail || 'Failed to prepare bulk mint' }
+          steps: prev.steps.map(step =>
+            step.id === 'prepare'
+              ? { ...step, status: 'error', error: errorMessage }
               : step
           )
         }));
+
+        toast({
+          title: "Bulk Mint Failed",
+          description: errorMessage,
+          variant: "destructive",
+          duration: 10000,
+        });
         return;
       }
 
@@ -1237,11 +1352,18 @@ export default function OrganizerDashboard() {
         if (result.status === 'running' || result.status === 'starting') {
           setTimeout(() => pollBackgroundTask(eventId, taskId), 2000); // Poll every 2 seconds
         } else if (result.status === 'completed') {
+          const successfulEmails = result.successful_emails || 0;
+          const failedEmails = result.failed_emails || 0;
+          const totalEmails = successfulEmails + failedEmails;
+
           toast({
             title: "Certificate Generation Completed!",
-            description: `Successfully generated ${result.completed} certificates. Emails have been sent.`,
+            description: `✅ Certificates: ${result.completed}/${result.total_participants}\n📧 Emails sent: ${successfulEmails}/${totalEmails}${failedEmails > 0 ? `\n⚠️ ${failedEmails} email(s) failed` : ''}`,
             duration: 10000,
           });
+          // Refresh events to show updated certificate counts
+          queryClient.invalidateQueries({ queryKey: ['events'] });
+          refetchEvents();
         } else if (result.status === 'failed') {
           toast({
             title: "Certificate Generation Failed",
@@ -1249,6 +1371,9 @@ export default function OrganizerDashboard() {
             variant: "destructive",
             duration: 10000,
           });
+          // Still refresh to show any partial progress
+          queryClient.invalidateQueries({ queryKey: ['events'] });
+          refetchEvents();
         }
       }
     } catch (error) {
@@ -1278,6 +1403,8 @@ export default function OrganizerDashboard() {
     }
 
     try {
+      setIsDeletingEvent(true);
+
       const response = await fetch(`${API_BASE_URL}/delete_event/${deleteEventDialog.eventId}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
@@ -1308,6 +1435,8 @@ export default function OrganizerDashboard() {
         description: error instanceof Error ? error.message : 'Unknown error',
         variant: "destructive",
       });
+    } finally {
+      setIsDeletingEvent(false);
     }
   };
 
@@ -1665,13 +1794,26 @@ export default function OrganizerDashboard() {
 
         {/* Selection Controls */}
         <div className="flex flex-wrap gap-2 p-4 bg-muted/30 rounded-lg border">
-          <Button
-            onClick={() => handleSelectNext25(eventId)}
-            variant="outline"
-            size="sm"
-          >
-            Select Next 25
-          </Button>
+          <div className="flex gap-2 items-center">
+            <Button
+              onClick={() => handleSelectNext25(eventId)}
+              variant="outline"
+              size="sm"
+            >
+              Select Next 25
+            </Button>
+            <Select value={selectNext25Filter} onValueChange={(value: any) => setSelectNext25Filter(value)}>
+              <SelectTrigger className="w-[180px] h-9">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Participants</SelectItem>
+                <SelectItem value="poa_minted">POA Minted</SelectItem>
+                <SelectItem value="poa_unminted">POA Unminted</SelectItem>
+                <SelectItem value="poa_transferred">POA Transferred</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <Button
             onClick={clearSelection}
             variant="outline"
@@ -1904,7 +2046,7 @@ export default function OrganizerDashboard() {
               size="sm"
             >
               <Settings className="h-4 w-4 mr-2" />
-              Manage Organizers
+              Manage Admins
             </Button>
             <Button 
               onClick={() => setShowCreateEvent(true)}
@@ -1932,13 +2074,13 @@ export default function OrganizerDashboard() {
           </div>
         </div>
 
-        {/* Email Management Dialog */}
+        {/* Admin Management Dialog */}
         <Dialog open={showEmailManagement} onOpenChange={setShowEmailManagement}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Manage Organizer Emails</DialogTitle>
+              <DialogTitle>Manage Admins</DialogTitle>
               <DialogDescription>
-                Add or remove organizer email addresses. Root emails cannot be removed.
+                Add or remove admin email addresses. Root admins cannot be removed.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -1947,39 +2089,65 @@ export default function OrganizerDashboard() {
                 <Input
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="new.organizer@example.com"
+                  placeholder="new.admin@example.com"
                   onKeyDown={(e) => e.key === 'Enter' && handleAddEmail()}
+                  disabled={addingEmail}
                 />
-                <Button onClick={handleAddEmail}>Add Email</Button>
+                <Button onClick={handleAddEmail} disabled={addingEmail || !newEmail.trim()}>
+                  {addingEmail ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    'Add Email'
+                  )}
+                </Button>
               </div>
 
               {/* Email list */}
               <div className="space-y-2">
-                <h4 className="font-medium">Current Organizers</h4>
+                <h4 className="font-medium">Current Admins</h4>
                 <div className="max-h-64 overflow-y-auto border rounded-md">
-                  {organizerEmails.map((email) => (
-                    <div key={email.email} className="flex items-center justify-between p-3 border-b last:border-b-0">
-                      <div className="flex items-center gap-2">
-                        <span>{email.email}</span>
-                        {email.is_root && (
-                          <Badge variant="default" className="text-xs">
-                            <Shield className="h-3 w-3 mr-1" />
-                            Root
-                          </Badge>
+                  {loadingEmails ? (
+                    <div className="flex items-center justify-center p-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      <span className="ml-2 text-muted-foreground">Loading admins...</span>
+                    </div>
+                  ) : organizerEmails.length === 0 ? (
+                    <div className="flex items-center justify-center p-8 text-muted-foreground">
+                      No admin emails found
+                    </div>
+                  ) : (
+                    organizerEmails.map((email) => (
+                      <div key={email.email} className="flex items-center justify-between p-3 border-b last:border-b-0">
+                        <div className="flex items-center gap-2">
+                          <span>{email.email}</span>
+                          {email.is_root && (
+                            <Badge variant="default" className="text-xs">
+                              <Shield className="h-3 w-3 mr-1" />
+                              Root
+                            </Badge>
+                          )}
+                        </div>
+                        {!email.is_root && (
+                          <Button
+                            onClick={() => handleRemoveEmail(email.email)}
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            disabled={removingEmail === email.email}
+                          >
+                            {removingEmail === email.email ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
                         )}
                       </div>
-                      {!email.is_root && (
-                        <Button
-                          onClick={() => handleRemoveEmail(email.email)}
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -2233,7 +2401,13 @@ export default function OrganizerDashboard() {
         {/* Progress Dialog */}
         <ProgressDialog
           open={progressDialog.open}
-          onOpenChange={(open) => setProgressDialog(prev => ({ ...prev, open }))}
+          onOpenChange={(open) => {
+            // Only allow closing if all steps are completed or errored (no loading steps)
+            const hasLoadingSteps = progressDialog.steps.some(step => step.status === 'loading');
+            if (!hasLoadingSteps) {
+              setProgressDialog(prev => ({ ...prev, open }));
+            }
+          }}
           title={progressDialog.title}
           steps={progressDialog.steps}
           showSuccessAnimation={progressDialog.showSuccessAnimation}
@@ -2349,8 +2523,13 @@ export default function OrganizerDashboard() {
                         size="sm"
                         variant="outline"
                         onClick={() => toggleParticipants(event.id)}
+                        disabled={loadingParticipants[event.id]}
                       >
-                        <Users className="h-4 w-4 mr-2" />
+                        {loadingParticipants[event.id] ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Users className="h-4 w-4 mr-2" />
+                        )}
                         {expandedEvents[event.id] ? 'Hide' : 'View'} Participants
                       </Button>
                       <Button
@@ -2379,15 +2558,6 @@ export default function OrganizerDashboard() {
                       >
                         <Award className="h-4 w-4 mr-2" />
                         {loadingStates[`cert-${event.id}`] ? 'Generating...' : `Generate Certs (${selectedParticipants.size})`}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleCheckCertificateStatus(event.id)}
-                        disabled={loadingStates[`status-${event.id}`]}
-                      >
-                        <BarChart3 className="h-4 w-4 mr-2" />
-                        {loadingStates[`status-${event.id}`] ? 'Checking...' : 'Certificate Status'}
                       </Button>
                       <Button
                         size="sm"
@@ -2549,10 +2719,15 @@ export default function OrganizerDashboard() {
             <Button
               variant="destructive"
               onClick={handleDeleteEvent}
+              disabled={isDeletingEvent}
               className="bg-red-600 hover:bg-red-700"
             >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Yes, Delete Event
+              {isDeletingEvent ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              {isDeletingEvent ? 'Deleting...' : 'Yes, Delete Event'}
             </Button>
           </div>
         </DialogContent>
