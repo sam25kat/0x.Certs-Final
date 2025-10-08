@@ -106,6 +106,20 @@ export default function OrganizerDashboard() {
   });
   const [isDeletingEvent, setIsDeletingEvent] = useState(false);
 
+  // Telegram verification toggle state
+  const [telegramToggleDialog, setTelegramToggleDialog] = useState<{
+    open: boolean;
+    eventId: number | null;
+    eventName: string;
+    currentValue: boolean;
+  }>({
+    open: false,
+    eventId: null,
+    eventName: '',
+    currentValue: true
+  });
+  const [togglingTelegram, setTogglingTelegram] = useState(false);
+
   // Search state for participants
   const [participantSearchQuery, setParticipantSearchQuery] = useState<string>('');
 
@@ -1381,6 +1395,45 @@ export default function OrganizerDashboard() {
     }
   };
 
+  // Handle Telegram Verification Toggle
+  const handleTelegramToggle = async () => {
+    if (!telegramToggleDialog.eventId) return;
+
+    try {
+      setTogglingTelegram(true);
+      const newValue = !telegramToggleDialog.currentValue;
+
+      const response = await fetch(`${API_BASE_URL}/toggle_telegram_verification/${telegramToggleDialog.eventId}?enabled=${newValue}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to toggle telegram verification');
+      }
+
+      toast({
+        title: "Success",
+        description: `Telegram verification ${newValue ? 'enabled' : 'disabled'} for ${telegramToggleDialog.eventName}`,
+      });
+
+      // Refresh events
+      refetchEvents();
+
+      // Close dialog
+      setTelegramToggleDialog({ open: false, eventId: null, eventName: '', currentValue: true });
+    } catch (error: any) {
+      console.error('Error toggling telegram verification:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to toggle telegram verification",
+        variant: "destructive",
+      });
+    } finally {
+      setTogglingTelegram(false);
+    }
+  };
+
   // Handle Delete Event
   const handleDeleteEvent = async () => {
     if (!deleteEventDialog.eventId) {
@@ -2471,6 +2524,28 @@ export default function OrganizerDashboard() {
                         </div>
                       </div>
 
+                      {/* Telegram Verification Toggle */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">Telegram Verification</span>
+                        <Button
+                          size="sm"
+                          variant={event.telegram_verification_required ? "default" : "outline"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTelegramToggleDialog({
+                              open: true,
+                              eventId: event.id,
+                              eventName: event.event_name,
+                              currentValue: event.telegram_verification_required ?? true
+                            });
+                          }}
+                          className="h-6 px-2 text-xs"
+                          title={event.telegram_verification_required ? "Telegram verification enabled" : "Telegram verification disabled"}
+                        >
+                          {event.telegram_verification_required ? 'Required' : 'Optional'}
+                        </Button>
+                      </div>
+
                       {/* Delete Event Button - Only for authorized wallet */}
                       {address?.toLowerCase() === '0x51489ad2efa688c61f8115e7a059e7bbfd89ea7d' && (
                         <Button
@@ -2683,6 +2758,73 @@ export default function OrganizerDashboard() {
           )}
         </div>
       </div>
+
+      {/* Telegram Verification Toggle Dialog */}
+      <Dialog open={telegramToggleDialog.open} onOpenChange={(open) =>
+        setTelegramToggleDialog(prev => ({ ...prev, open }))
+      }>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              {telegramToggleDialog.currentValue ? 'Disable' : 'Enable'} Telegram Verification
+            </DialogTitle>
+            <DialogDescription>
+              {telegramToggleDialog.currentValue
+                ? 'Warning: This will allow anyone to register without Telegram verification'
+                : 'This will require participants to verify their Telegram membership before registering'
+              }
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <div className={`border rounded-lg p-4 ${telegramToggleDialog.currentValue ? 'bg-yellow-50 border-yellow-200' : 'bg-blue-50 border-blue-200'}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <Shield className={`h-5 w-5 ${telegramToggleDialog.currentValue ? 'text-yellow-600' : 'text-blue-600'}`} />
+                <span className={`font-medium ${telegramToggleDialog.currentValue ? 'text-yellow-800' : 'text-blue-800'}`}>
+                  Event: {telegramToggleDialog.eventName}
+                </span>
+              </div>
+              <p className={`text-sm mt-2 ${telegramToggleDialog.currentValue ? 'text-yellow-700' : 'text-blue-700'}`}>
+                {telegramToggleDialog.currentValue ? (
+                  <>
+                    ⚠️ <strong>Warning:</strong> Disabling telegram verification will allow anyone with the event code to register, even if they're not in your Telegram group.
+                  </>
+                ) : (
+                  <>
+                    ✅ Enabling telegram verification will require all participants to verify their Telegram membership before they can register.
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setTelegramToggleDialog({ open: false, eventId: null, eventName: '', currentValue: true })}
+              disabled={togglingTelegram}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={telegramToggleDialog.currentValue ? "destructive" : "default"}
+              onClick={handleTelegramToggle}
+              disabled={togglingTelegram}
+            >
+              {togglingTelegram ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                <>
+                  {telegramToggleDialog.currentValue ? 'Disable Verification' : 'Enable Verification'}
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Event Confirmation Dialog */}
       <Dialog open={deleteEventDialog.open} onOpenChange={(open) =>

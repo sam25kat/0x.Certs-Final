@@ -177,7 +177,8 @@ async def init_database_tables():
                 sponsors TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_active INTEGER DEFAULT 1,
-                certificate_template VARCHAR(255) DEFAULT 'default'
+                certificate_template VARCHAR(255) DEFAULT 'default',
+                telegram_verification_required BOOLEAN DEFAULT TRUE
             )
             """,
             """
@@ -273,7 +274,8 @@ async def init_database_tables():
                 sponsors TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 is_active INTEGER DEFAULT 1,
-                certificate_template TEXT DEFAULT 'default'
+                certificate_template TEXT DEFAULT 'default',
+                telegram_verification_required INTEGER DEFAULT 1
             )
             """,
             """
@@ -379,7 +381,9 @@ async def migrate_database():
             "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_metadata_uri VARCHAR(500)",
             # Add missing columns to organizers table
             "ALTER TABLE organizers ADD COLUMN IF NOT EXISTS is_root BOOLEAN DEFAULT FALSE",
-            "ALTER TABLE organizers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE"
+            "ALTER TABLE organizers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+            # Add telegram verification toggle to events table
+            "ALTER TABLE events ADD COLUMN IF NOT EXISTS telegram_verification_required BOOLEAN DEFAULT TRUE"
         ]
 
         for query in migration_queries:

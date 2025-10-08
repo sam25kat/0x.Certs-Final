@@ -2677,7 +2677,7 @@ async def get_events():
     """Get all events"""
     try:
         events_sql, events_params = convert_sql_for_postgres(
-            """SELECT id, event_code, event_name, event_date, sponsors, description, created_at, is_active 
+            """SELECT id, event_code, event_name, event_date, sponsors, description, created_at, is_active, telegram_verification_required
                FROM events ORDER BY created_at DESC""",
             []
         )
@@ -2697,7 +2697,8 @@ async def get_events():
                         "sponsors": row[4],
                         "description": row[5],
                         "created_at": row[6],
-                        "is_active": row[7]
+                        "is_active": row[7],
+                        "telegram_verification_required": row[8] if len(row) > 8 else True
                     })
                 else:
                     # Handle PostgreSQL Record object
@@ -2709,7 +2710,8 @@ async def get_events():
                         "sponsors": getattr(row, 'sponsors', row[4]),
                         "description": getattr(row, 'description', row[5]),
                         "created_at": getattr(row, 'created_at', row[6]),
-                        "is_active": getattr(row, 'is_active', row[7])
+                        "is_active": getattr(row, 'is_active', row[7]),
+                        "telegram_verification_required": getattr(row, 'telegram_verification_required', True)
                     })
         
         return {"events": events}
@@ -3237,6 +3239,36 @@ async def delete_event(event_id: int):
     except Exception as e:
         print(f"Error deleting event {event_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete event: {str(e)}")
+
+@app.post("/toggle_telegram_verification/{event_id}")
+async def toggle_telegram_verification(event_id: int, enabled: bool):
+    """Toggle telegram verification requirement for an event"""
+    try:
+        # Check if event exists
+        event_query = "SELECT event_name, telegram_verification_required FROM events WHERE id = ?"
+        converted_query, params = convert_sql_for_postgres(event_query, [event_id])
+        event = await db_manager.execute_query(converted_query, params, fetch=True)
+
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        # Update telegram verification requirement
+        update_query = "UPDATE events SET telegram_verification_required = ? WHERE id = ?"
+        converted_query, params = convert_sql_for_postgres(update_query, [enabled, event_id])
+        await db_manager.execute_query(converted_query, params)
+
+        return {
+            "success": True,
+            "message": f"Telegram verification {'enabled' if enabled else 'disabled'} for event",
+            "event_id": event_id,
+            "telegram_verification_required": enabled
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error toggling telegram verification for event {event_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to toggle telegram verification: {str(e)}")
 
 @app.post("/start_background_certificate_generation/{event_id}")
 async def start_background_certificate_generation(event_id: int):

@@ -20,6 +20,8 @@ export default function ParticipantDashboard() {
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [selectedInfo, setSelectedInfo] = useState<any>(null);
   const [showNetworkConfig, setShowNetworkConfig] = useState(false);
+  const [telegramRequired, setTelegramRequired] = useState<boolean | null>(null);
+  const [eventCodeValidating, setEventCodeValidating] = useState(false);
   const [notification, setNotification] = useState<{
     show: boolean;
     type: 'success' | 'error' | 'info';
@@ -83,19 +85,53 @@ export default function ParticipantDashboard() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    
+
     // Special handling for telegram username
     if (name === 'telegram_username') {
       // Clean the input and reset verification status
       const cleanValue = value.replace(/[^a-zA-Z0-9_@]/g, '');
       setFormData({ ...formData, [name]: cleanValue });
-      
+
       // Reset verification if user starts typing again
       if (telegramVerified && cleanValue !== formData.telegram_username) {
         setTelegramVerified(false);
       }
+    } else if (name === 'event_code') {
+      setFormData({ ...formData, [name]: value });
+
+      // Check telegram requirement when event code is entered (6 digits)
+      if (value.length === 6) {
+        checkEventTelegramRequirement(value);
+      } else {
+        setTelegramRequired(null);
+      }
     } else {
       setFormData({ ...formData, [name]: value });
+    }
+  };
+
+  // Check if event requires telegram verification
+  const checkEventTelegramRequirement = async (eventCode: string) => {
+    if (eventCode.length !== 6) return;
+
+    setEventCodeValidating(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/events`);
+      const data = await response.json();
+
+      const event = data.events?.find((e: any) => e.event_code === eventCode && e.is_active);
+
+      if (event) {
+        setTelegramRequired(event.telegram_verification_required ?? true);
+      } else {
+        setTelegramRequired(null);
+      }
+    } catch (error) {
+      console.error('Error checking event telegram requirement:', error);
+      // Default to required on error
+      setTelegramRequired(true);
+    } finally {
+      setEventCodeValidating(false);
     }
   };
 
@@ -141,20 +177,23 @@ export default function ParticipantDashboard() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!isConnected || !address) {
       showNotification('error', 'Wallet not connected', 'Please connect your wallet to register');
       return;
     }
 
-    if (!formData.telegram_username) {
-      showNotification('error', 'Telegram username required', 'Please enter your Telegram username to continue');
-      return;
-    }
+    // Only check telegram if required
+    if (telegramRequired === true) {
+      if (!formData.telegram_username) {
+        showNotification('error', 'Telegram username required', 'Please enter your Telegram username to continue');
+        return;
+      }
 
-    if (!telegramVerified) {
-      showNotification('error', 'Telegram not verified', 'Please verify your Telegram community membership first');
-      return;
+      if (!telegramVerified) {
+        showNotification('error', 'Telegram not verified', 'Please verify your Telegram community membership first');
+        return;
+      }
     }
 
     setIsRegistering(true);
@@ -977,7 +1016,8 @@ export default function ParticipantDashboard() {
                   </div>
                 </div>
 
-                {/* Telegram Verification Section */}
+                {/* Telegram Verification Section - Only show if required */}
+                {telegramRequired !== false && (
                 <Card className={`backdrop-blur-sm ${telegramVerified ? 'border-green-200 bg-green-50/80' : 'bg-background/60'}`}>
                   <CardHeader className="pb-4">
                     <div className="flex items-center gap-2">
@@ -1083,10 +1123,12 @@ export default function ParticipantDashboard() {
                     )}
                   </CardContent>
                 </Card>
+                )}
 
                 <Button
                   type="submit"
-                  disabled={isRegistering || !formData.name || !formData.email || !formData.event_code || !formData.telegram_username || !telegramVerified}
+                  disabled={isRegistering || !formData.name || !formData.email || !formData.event_code ||
+                    (telegramRequired === true && (!formData.telegram_username || !telegramVerified))}
                   className="w-full"
                   variant="web3"
                   size="lg"
@@ -1097,11 +1139,11 @@ export default function ParticipantDashboard() {
                       Registering...
                     </>
                   ) : (
-                    !formData.telegram_username ? (
+                    (telegramRequired === true && !formData.telegram_username) ? (
                       <>
                         Telegram Username Required
                       </>
-                    ) : !telegramVerified ? (
+                    ) : (telegramRequired === true && !telegramVerified) ? (
                       <>
                         Complete Telegram Verification First
                       </>
