@@ -472,7 +472,7 @@ if __name__ == "__main__":
         participant_name="Test User",
         event_name="Test Event",
         certificate_path="certificates/test_certificate.jpg",
-        contract_address="0xF55562677316D7620d5eBeE2D9691a7CE3485740",
+        contract_address="0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7",
         token_id="1"
     )
     

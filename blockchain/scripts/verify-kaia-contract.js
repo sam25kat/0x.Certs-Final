@@ -6,7 +6,7 @@ async function verifyKaiaContract() {
     console.log("============================");
     
     const rpcUrl = "https://public-en-kairos.node.kaia.io";
-    const contractAddress = "0xF55562677316D7620d5eBeE2D9691a7CE3485740";
+    const contractAddress = "0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7";
     const privateKey = "bb6001d9e60d1a11e8399689569b7e700201e7897d3f2457037c463c9f76ca47";
     
     const provider = new ethers.JsonRpcProvider(rpcUrl);

@@ -13,25 +13,51 @@ async function main() {
     process.exit(1);
   }
 
-  if (!process.env.BASE_SEPOLIA_RPC_URL) {
-    console.log("ℹ️  Using default Base Sepolia RPC URL: https://public-en-kairos.node.kaia.io");
+  if (!process.env.KAIA_TESTNET_RPC_URL && !process.env.BASE_SEPOLIA_RPC_URL) {
+    console.log("ℹ️  Using default Kaia Kairos RPC URL: https://public-en-kairos.node.kaia.io");
   }
 
-  const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL || "https://public-en-kairos.node.kaia.io";
+  // Support both env variable names for backwards compatibility
+  const rpcUrl = process.env.KAIA_TESTNET_RPC_URL || process.env.BASE_SEPOLIA_RPC_URL || "https://public-en-kairos.node.kaia.io";
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   const deployer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
-  console.log("🚀 Deploying CertificateNFT to Base Sepolia...");
+  // Get actual network info
+  const network = await provider.getNetwork();
+  const chainId = Number(network.chainId);
+
+  // Determine network name based on chain ID
+  let networkName = "Unknown Network";
+  let explorerUrl = "";
+
+  if (chainId === 1001) {
+    networkName = "Kaia Kairos Testnet";
+    explorerUrl = `https://kairos.kaiascan.io/address/`;
+  } else if (chainId === 84532) {
+    networkName = "Base Sepolia Testnet";
+    explorerUrl = `https://sepolia.basescan.org/address/`;
+  } else if (chainId === 8217) {
+    networkName = "Kaia Mainnet";
+    explorerUrl = `https://kaiascan.io/address/`;
+  }
+
+  console.log(`🚀 Deploying CertificateNFT to ${networkName}...`);
   console.log("📝 Deployer address:", deployer.address);
+  console.log("🌐 Chain ID:", chainId);
   
   try {
     const balance = await provider.getBalance(deployer.address);
     console.log("💰 Account balance:", ethers.formatEther(balance), "ETH");
     
     if (balance === 0n) {
-      console.error("❌ Error: Account has no ETH for deployment");
-      console.log("Please add some ETH to your account on Base Sepolia testnet");
-      console.log("You can get testnet ETH from: https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet");
+      console.error("❌ Error: Account has no tokens for deployment");
+      if (chainId === 1001) {
+        console.log("Please add some KAIA to your account on Kaia Kairos testnet");
+        console.log("You can get testnet KAIA from: https://faucet.kaia.io");
+      } else if (chainId === 84532) {
+        console.log("Please add some ETH to your account on Base Sepolia testnet");
+        console.log("You can get testnet ETH from: https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet");
+      }
       process.exit(1);
     }
   } catch (error) {
@@ -59,10 +85,21 @@ async function main() {
   );
 
   console.log("⏳ Deploying contract...");
-  
+
   try {
-    // Deploy contract (let ethers estimate gas)
-    const certificate = await CertificateNFT.deploy();
+    // Get current gas price and set reasonable limits
+    const feeData = await provider.getFeeData();
+    const gasPrice = feeData.gasPrice || ethers.parseUnits("30", "gwei");
+
+    console.log("⛽ Gas settings:");
+    console.log("   Gas Price:", ethers.formatUnits(gasPrice, "gwei"), "gwei");
+    console.log("   Estimated cost: ~0.1 KAIA");
+
+    // Deploy contract with explicit gas settings to prevent overestimation
+    const certificate = await CertificateNFT.deploy({
+      gasPrice: gasPrice,  // Use current network gas price
+      gasLimit: 5000000    // Set reasonable gas limit (5M units, more than enough)
+    });
 
     console.log("🔄 Waiting for deployment transaction to be mined...");
     await certificate.waitForDeployment();
@@ -70,8 +107,10 @@ async function main() {
     const contractAddress = await certificate.getAddress();
     console.log("\n✅ Deployment successful!");
     console.log("🏠 Contract address:", contractAddress);
-    console.log("🌐 Network: Base Sepolia (Chain ID: 84532)");
-    console.log("🔍 View on BaseScan:", `https://sepolia.basescan.org/address/${contractAddress}`);
+    console.log("🌐 Network:", networkName, `(Chain ID: ${chainId})`);
+    if (explorerUrl) {
+      console.log("🔍 View on Explorer:", `${explorerUrl}${contractAddress}`);
+    }
     
     console.log("\n📋 Next steps:");
     console.log("1. Update your .env files with the new contract address:");
@@ -81,29 +120,40 @@ async function main() {
     
     // Save deployment info to file
     const deploymentInfo = {
-      network: "baseSepolia",
-      chainId: 84532,
+      network: networkName,
+      chainId: chainId,
       contractAddress: contractAddress,
       deployerAddress: deployer.address,
       deploymentTime: new Date().toISOString(),
-      transactionHash: certificate.deploymentTransaction().hash
+      transactionHash: certificate.deploymentTransaction().hash,
+      explorerUrl: explorerUrl ? `${explorerUrl}${contractAddress}` : null
     };
-    
+
+    const filename = chainId === 1001
+      ? './deployment-info-kaia-kairos.json'
+      : chainId === 84532
+        ? './deployment-info-base-sepolia.json'
+        : './deployment-info-latest.json';
+
     fs.writeFileSync(
-      './deployment-info-base-sepolia.json', 
+      filename,
       JSON.stringify(deploymentInfo, null, 2)
     );
-    
-    console.log("💾 Deployment info saved to: deployment-info-base-sepolia.json");
+
+    console.log("💾 Deployment info saved to:", filename);
 
   } catch (error) {
     console.error("❌ Deployment failed:", error.message);
-    
+
     if (error.message.includes("insufficient funds")) {
-      console.log("💡 You need more ETH in your account for deployment");
-      console.log("Get testnet ETH from: https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet");
+      console.log("💡 You need more tokens in your account for deployment");
+      if (chainId === 1001) {
+        console.log("Get testnet KAIA from: https://faucet.kaia.io");
+      } else if (chainId === 84532) {
+        console.log("Get testnet ETH from: https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet");
+      }
     }
-    
+
     process.exit(1);
   }
 }

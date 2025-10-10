@@ -1,8 +1,8 @@
 {
   "network": "baseSepolia",
   "chainId": 84532,
-  "contractAddress": "0xf55562677316d7620d5ebee2d9691a7ce3485740",
+  "contractAddress": "0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7",
   "deployerAddress": "0x51489ad2efa688c61F8115e7A059e7bBFd89Ea7d",
-  "deploymentTime": "2025-09-10T22:56:52.629Z",
-  "transactionHash": "0xffeaaf1cc78fbdbaf669cbf8b4dac8233b4003447796e3f637ace94156b0d3b4"
+  "deploymentTime": "2025-10-09T08:12:55.982Z",
+  "transactionHash": "0x695dcd63fe3fc181ebeb6494d6c31980cd9fcd01dbc133bdefdc052e45abf2e2"
 }

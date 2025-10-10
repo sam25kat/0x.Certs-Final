@@ -97,22 +97,24 @@ class BulkCertificateProcessor:
     async def get_poa_holders_for_event(self, event_id, participant_ids=None):
         """Get participants who have PoA tokens for a specific event, optionally filtered by participant IDs"""
         if participant_ids:
-            # Get specific selected participants with PoA tokens
+            # Get specific selected participants with PoA tokens (minted OR transferred)
             placeholders = ','.join('?' for _ in participant_ids)
             query = f"""
                 SELECT DISTINCT p.id, p.name, p.email, p.wallet_address, p.team_name, p.poa_token_id
                 FROM participants p
-                WHERE p.event_id = ? AND p.id IN ({placeholders}) AND p.poa_status = 'transferred' AND p.poa_token_id IS NOT NULL AND p.poa_token_id > 0
+                WHERE p.event_id = ? AND p.id IN ({placeholders})
+                AND p.poa_status IN ('minted', 'transferred')
+                AND p.poa_token_id IS NOT NULL AND p.poa_token_id > 0
             """
             params = [event_id] + participant_ids
             print(f"[DEBUG] CERTIFICATES - Querying selected participants: {participant_ids}")
         else:
-            # Get participants with transferred PoA but no certificates generated yet
+            # Get participants with minted/transferred PoA but no certificates generated yet
             query = """
                 SELECT DISTINCT p.id, p.name, p.email, p.wallet_address, p.team_name, p.poa_token_id
                 FROM participants p
                 WHERE p.event_id = ?
-                AND p.poa_status = 'transferred'
+                AND p.poa_status IN ('minted', 'transferred')
                 AND p.poa_token_id IS NOT NULL
                 AND p.poa_token_id > 0
                 AND (p.certificate_status IS NULL OR p.certificate_status NOT IN ('completed', 'transferred'))
@@ -122,6 +124,18 @@ class BulkCertificateProcessor:
         
         converted_query, converted_params = convert_sql_for_postgres(query, params)
         participants_result = await db_manager.execute_query(converted_query, converted_params, fetch=True)
+
+        # Debug: If no participants found and specific IDs were requested, check their actual status
+        if not participants_result and participant_ids:
+            debug_query = f"""
+                SELECT p.id, p.name, p.poa_status, p.poa_token_id
+                FROM participants p
+                WHERE p.event_id = ? AND p.id IN ({placeholders})
+            """
+            debug_params = [event_id] + participant_ids
+            converted_debug_query, converted_debug_params = convert_sql_for_postgres(debug_query, debug_params)
+            debug_result = await db_manager.execute_query(converted_debug_query, converted_debug_params, fetch=True)
+            print(f"[DEBUG] Participant status check: {debug_result}")
         
         return [
             {
@@ -339,16 +353,20 @@ class BulkCertificateProcessor:
     async def update_certificate_status(self, participant_id, token_id, tx_hash, certificate_path, ipfs_data):
         """Update participant certificate status in database"""
         query = """
-            UPDATE participants 
+            UPDATE participants
             SET certificate_status = 'transferred',
                 certificate_token_id = ?,
                 certificate_minted_at = CURRENT_TIMESTAMP,
-                certificate_ipfs = ?
+                certificate_ipfs = ?,
+                certificate_ipfs_hash = ?,
+                certificate_metadata_uri = ?
             WHERE id = ?
         """
         params = [
             int(token_id),  # PostgreSQL expects integer type for certificate_token_id
             ipfs_data.get('image_hash'),
+            ipfs_data.get('metadata_hash'),
+            ipfs_data.get('metadata_url'),
             participant_id
         ]
         
@@ -366,9 +384,10 @@ class BulkCertificateProcessor:
     async def process_single_participant(self, participant, event_details, event_id, send_email_immediately=False):
         """Process a single participant certificate in parallel"""
         try:
-            print(f"Processing participant: {participant['name']}")
+            print(f"[DEBUG] Processing participant: {participant['name']}")
 
             # Generate certificate
+            print(f"[DEBUG] Generating certificate for {participant['name']}...")
             cert_result = await self.cert_generator.generate_certificate(
                 participant_name=participant['name'],
                 event_name=event_details['name'],
@@ -378,17 +397,21 @@ class BulkCertificateProcessor:
                 template_filename=event_details.get('template')
             )
 
+            print(f"[DEBUG] Certificate generation result for {participant['name']}: success={cert_result.get('success')}")
+
             if not cert_result['success']:
-                print(f"Certificate generation failed for {participant['name']}: {cert_result.get('error', 'Unknown error')}")
+                error_msg = cert_result.get('error', 'Unknown error')
+                print(f"[ERROR] Certificate generation failed for {participant['name']}: {error_msg}")
                 return {
                     "participant": participant['name'],
                     "step": "certificate_generation",
                     "success": False,
-                    "error": cert_result['error'],
+                    "error": error_msg,
                     "email_sent": False
                 }
 
             # Upload to IPFS
+            print(f"[DEBUG] Uploading certificate to IPFS for {participant['name']}...")
             ipfs_result = await asyncio.to_thread(
                 self.cert_generator.upload_to_ipfs,
                 cert_result['file_path'],
@@ -400,30 +423,38 @@ class BulkCertificateProcessor:
                 }
             )
 
+            print(f"[DEBUG] IPFS upload result for {participant['name']}: success={ipfs_result.get('success')}")
+
             if not ipfs_result['success']:
-                print(f"IPFS upload failed for {participant['name']}: {ipfs_result.get('error', 'Unknown error')}")
-                print(f"Continuing with local certificate storage for {participant['name']}")
+                error_msg = ipfs_result.get('error', 'Unknown error')
+                print(f"[ERROR] IPFS upload failed for {participant['name']}: {error_msg}")
+                print(f"[DEBUG] Continuing with local certificate storage for {participant['name']}")
                 # Continue with local storage - set dummy IPFS hash
                 ipfs_hash = f"local_cert_{participant['id']}_{int(time.time())}"
                 ipfs_url = cert_result['file_path']  # Use local file path
             else:
                 ipfs_hash = ipfs_result['metadata_hash']
                 ipfs_url = ipfs_result['metadata_url']
+                print(f"[DEBUG] IPFS hash for {participant['name']}: {ipfs_hash}")
 
             # Mint NFT
+            print(f"[DEBUG] Minting certificate NFT for {participant['name']}...")
             mint_result = await self.mint_certificate_nft(
                 participant['wallet_address'],
                 event_id,
                 ipfs_hash
             )
 
+            print(f"[DEBUG] NFT minting result for {participant['name']}: success={mint_result.get('success')}")
+
             if not mint_result['success']:
-                print(f"NFT minting failed for {participant['name']}: {mint_result.get('error', 'Unknown error')}")
+                error_msg = mint_result.get('error', 'Unknown error')
+                print(f"[ERROR] NFT minting failed for {participant['name']}: {error_msg}")
                 return {
                     "participant": participant['name'],
                     "step": "nft_minting",
                     "success": False,
-                    "error": mint_result['error'],
+                    "error": error_msg,
                     "email_sent": False
                 }
 
@@ -508,42 +539,56 @@ class BulkCertificateProcessor:
     async def _process_bulk_certificates_async(self, event_id, participant_ids=None):
         """Async implementation of bulk certificate processing"""
         try:
-            print(f"Starting bulk certificate processing for event {event_id}")
-            print(f"Participant IDs filter: {participant_ids}")
-            
+            print(f"[DEBUG] Starting bulk certificate processing for event {event_id}")
+            print(f"[DEBUG] Participant IDs filter: {participant_ids}")
+
             # Get event details
+            print(f"[DEBUG] Getting event details for event {event_id}...")
             event_details = await self.get_event_details(event_id)
             if not event_details:
-                return {"success": False, "error": "Event not found"}
-            
+                error_msg = "Event not found"
+                print(f"[ERROR] {error_msg}")
+                return {"success": False, "error": error_msg}
+
+            print(f"[DEBUG] Event details: {event_details}")
+
             # Get PoA holders (filtered by participant_ids if provided)
+            print(f"[DEBUG] Getting PoA holders for event {event_id}...")
             participants = await self.get_poa_holders_for_event(event_id, participant_ids=participant_ids)
             if not participants:
                 error_msg = "No PoA holders found for selected participants" if participant_ids else "No PoA holders found for this event"
+                print(f"[ERROR] {error_msg}")
                 return {"success": False, "error": error_msg}
-            
-            print(f"Found {len(participants)} participants with PoA tokens")
+
+            print(f"[DEBUG] Found {len(participants)} participants with PoA tokens")
+            print(f"[DEBUG] First participant: {participants[0] if participants else 'None'}")
             
             results = []
             email_data = []
-            
+
             # Process participants in parallel with controlled concurrency
-            print(f"Processing {len(participants)} participants in parallel...")
-            
+            print(f"[DEBUG] Processing {len(participants)} participants in parallel...")
+
             # Use semaphore to limit concurrent operations (prevent RPC overload and nonce conflicts)
             semaphore = asyncio.Semaphore(3)  # Max 3 concurrent operations for blockchain safety
-            
+
             async def process_with_semaphore(participant):
                 async with semaphore:
                     # Add small delay to prevent rate limiting
                     await asyncio.sleep(1)  # 1 second delay between operations
-                    return await self.process_single_participant(participant, event_details, event_id)
-            
+                    print(f"[DEBUG] Starting to process participant: {participant['name']}")
+                    result = await self.process_single_participant(participant, event_details, event_id)
+                    print(f"[DEBUG] Finished processing participant: {participant['name']}, success: {result.get('success')}")
+                    return result
+
             # Create tasks for parallel processing
+            print(f"[DEBUG] Creating {len(participants)} tasks...")
             tasks = [process_with_semaphore(participant) for participant in participants]
-            
+
             # Execute all tasks in parallel
+            print(f"[DEBUG] Executing tasks in parallel...")
             parallel_results = await asyncio.gather(*tasks, return_exceptions=True)
+            print(f"[DEBUG] Parallel execution completed, got {len(parallel_results)} results")
             
             # Separate results and email data
             for result in parallel_results:
@@ -603,11 +648,16 @@ class BulkCertificateProcessor:
                 "certificate_results": results,
                 "email_results": email_results
             }
-            
+
         except Exception as e:
+            import traceback
+            error_msg = str(e)
+            full_traceback = traceback.format_exc()
+            print(f"[ERROR] Exception in _process_bulk_certificates_async: {error_msg}")
+            print(f"[ERROR] Full traceback: {full_traceback}")
             return {
                 "success": False,
-                "error": str(e)
+                "error": error_msg if error_msg else "Unknown error in certificate processing"
             }
 
     # NEW SEPARATE FUNCTION - Background processing with progress tracking

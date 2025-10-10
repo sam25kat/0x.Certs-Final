@@ -299,7 +299,7 @@ export default function ParticipantDashboard() {
       tokenId: type === 'poa' ? nftStatus.poa_token_id : nftStatus.certificate_token_id,
       status: type === 'poa' ? nftStatus.poa_status : nftStatus.certificate_status,
       transferredAt: type === 'poa' ? nftStatus.poa_transferred_at : nftStatus.certificate_transferred_at,
-      contractAddress: "0xf55562677316d7620d5ebee2d9691a7ce3485740" // Actual contract address for both PoA and Certificate
+      contractAddress: "0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7" // Actual contract address for both PoA and Certificate
     });
     setShowInfoModal(true);
   };

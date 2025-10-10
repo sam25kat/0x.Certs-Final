@@ -143,7 +143,7 @@ def generate_poa_metadata(event_name, participant_name):
     return {
         "name": f"{event_name} - Proof of Attendance",
         "description": f"Official Proof of Attendance NFT for {event_name} event issued to {participant_name} by 0x.day",
-        "image": "https://gateway.pinata.cloud/ipfs/Qmf3aMx3nyWHpw25EgEHZjM42yTWfH8wJLbHhwZuAQbWr5",
+        "image": "https://red-biological-whitefish-939.mypinata.cloud/ipfs/Qmf3aMx3nyWHpw25EgEHZjM42yTWfH8wJLbHhwZuAQbWr5",
         "external_url": "https://0x.day",
         "issuer": "0x.day",
         "attributes": [
@@ -178,7 +178,7 @@ def upload_poa_metadata_to_ipfs(metadata):
             return {
                 "success": True,
                 "metadata_hash": metadata_hash,
-                "metadata_url": f"https://gateway.pinata.cloud/ipfs/{metadata_hash}"
+                "metadata_url": f"https://red-biological-whitefish-939.mypinata.cloud/ipfs/{metadata_hash}"
             }
         else:
             print(f"Failed to upload PoA metadata to IPFS: {response.text}")
@@ -2160,7 +2160,7 @@ async def bulk_mint_poa(event_id: int, request: dict):
             "participant_count": len(participants),
             "organizer_wallet": organizer_wallet,
             "ipfs_hash": ipfs_hash,
-            "metadata_url": f"https://gateway.pinata.cloud/ipfs/{ipfs_hash}"
+            "metadata_url": f"https://red-biological-whitefish-939.mypinata.cloud/ipfs/{ipfs_hash}"
         }
         
     except HTTPException:
@@ -2578,7 +2578,7 @@ async def send_emails(event_id: int):
                 # Create email content
                 subject = f"🎉 Your {event_name} Certificate NFT is Ready!"
                 
-                ipfs_url = f"https://gateway.pinata.cloud/ipfs/{ipfs_hash}"
+                ipfs_url = f"https://red-biological-whitefish-939.mypinata.cloud/ipfs/{ipfs_hash}"
                 
                 body = f"""
                 <html>

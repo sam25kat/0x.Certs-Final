@@ -379,6 +379,9 @@ async def migrate_database():
             "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_path VARCHAR(255)",
             "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_ipfs_hash VARCHAR(255)",
             "ALTER TABLE participants ADD COLUMN IF NOT EXISTS certificate_metadata_uri VARCHAR(500)",
+            # Add PoA metadata columns
+            "ALTER TABLE participants ADD COLUMN IF NOT EXISTS poa_ipfs_hash VARCHAR(255)",
+            "ALTER TABLE participants ADD COLUMN IF NOT EXISTS poa_metadata_uri VARCHAR(500)",
             # Add missing columns to organizers table
             "ALTER TABLE organizers ADD COLUMN IF NOT EXISTS is_root BOOLEAN DEFAULT FALSE",
             "ALTER TABLE organizers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",

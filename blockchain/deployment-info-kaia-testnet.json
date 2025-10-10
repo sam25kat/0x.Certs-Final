@@ -1,10 +1,10 @@
 {
   "network": "kaiaTestnet",
   "chainId": 1001,
-  "contractAddress": "0xF55562677316D7620d5eBeE2D9691a7CE3485740",
+  "contractAddress": "0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7",
   "deployerAddress": "0x51489ad2efa688c61F8115e7A059e7bBFd89Ea7d",
   "deploymentTime": "2025-09-22T10:08:00.511Z",
   "transactionHash": "0xa94ea576602b17d3a121e738586ba9e98c7b980884a718b2f27d9709e859823e",
   "rpcUrl": "https://public-en-kairos.node.kaia.io",
-  "explorer": "https://kairos.kaiascan.io/address/0xF55562677316D7620d5eBeE2D9691a7CE3485740"
+  "explorer": "https://kairos.kaiascan.io/address/0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7"
 }

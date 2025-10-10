@@ -8,7 +8,7 @@ async function testBulkMintKaia() {
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     
     // USE THE CORRECT KAIA CONTRACT ADDRESS
-    const contractAddress = "0xF55562677316D7620d5eBeE2D9691a7CE3485740";
+    const contractAddress = "0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7";
     const privateKey = process.env.PRIVATE_KEY;
     const signer = new ethers.Wallet(privateKey, provider);
 

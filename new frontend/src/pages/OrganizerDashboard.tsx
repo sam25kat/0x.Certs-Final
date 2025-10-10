@@ -858,12 +858,19 @@ export default function OrganizerDashboard() {
       (window as any).currentBulkMintEventId = eventId;
       (window as any).currentBulkMintParticipantIds = selectedParticipantIds;
 
-      // Execute bulk mint
+      // Execute bulk mint with reasonable gas limits
+      const numRecipients = result.recipients.length;
+      const gasPerMint = 150000; // ~150k gas per PoA mint
+      const baseGas = 100000; // Base transaction overhead
+      const estimatedGas = baseGas + (gasPerMint * numRecipients);
+
       bulkMintWrite({
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
         functionName: 'bulkMintPoA',
-        args: [result.recipients, BigInt(eventId), result.ipfs_hash]
+        args: [result.recipients, BigInt(eventId), result.ipfs_hash],
+        gas: BigInt(estimatedGas * 1.2), // 20% buffer for safety
+        gasPrice: undefined // Let wallet use current network gas price
       });
 
     } catch (error) {
@@ -1056,12 +1063,19 @@ export default function OrganizerDashboard() {
       (window as any).currentBatchTransferEventId = eventId;
       (window as any).currentBatchTransferParticipantIds = selectedParticipantIds;
 
-      // Execute batch transfer
+      // Execute batch transfer with reasonable gas limits
+      const numTransfers = result.token_ids.length;
+      const gasPerTransfer = 100000; // ~100k gas per NFT transfer
+      const baseGas = 50000; // Base transaction overhead
+      const estimatedGas = baseGas + (gasPerTransfer * numTransfers);
+
       batchTransferWrite({
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
         functionName: 'batchTransfer',
-        args: [result.recipients, result.token_ids.map((id: number) => BigInt(id))]
+        args: [result.recipients, result.token_ids.map((id: number) => BigInt(id))],
+        gas: BigInt(estimatedGas * 1.2), // 20% buffer for safety
+        gasPrice: undefined // Let wallet use current network gas price
       });
 
     } catch (error) {

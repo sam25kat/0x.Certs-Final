@@ -8,9 +8,12 @@ import "@openzeppelin/contracts/utils/Counters.sol";
 
 contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
     using Counters for Counters.Counter;
-    
+
     Counters.Counter private _tokenIdCounter;
-    
+
+    // Configurable IPFS gateway URL (can be changed by owner without redeploying)
+    string public gatewayURL;
+
     mapping(uint256 => bool) public isPoA;
     mapping(uint256 => uint256) public tokenToEventId;
     mapping(address => mapping(uint256 => bool)) public hasPoAForEvent;
@@ -19,8 +22,22 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
     event PoAMinted(address indexed recipient, uint256 tokenId, uint256 eventId);
     event CertificateMinted(address indexed recipient, uint256 tokenId, uint256 eventId, string ipfsHash);
     event EventCreated(uint256 eventId, string eventName);
-    
-    constructor() ERC721("Hackathon Certificate", "CERT") {}
+    event GatewayURLUpdated(string oldURL, string newURL);
+
+    constructor() ERC721("Hackathon Certificate", "CERT") {
+        // Set default gateway URL (can be changed later by owner)
+        gatewayURL = "https://red-biological-whitefish-939.mypinata.cloud/ipfs/";
+    }
+
+    /**
+     * @dev Set the IPFS gateway URL (only owner can call this)
+     * @param newGatewayURL The new gateway URL (e.g., "https://gateway.pinata.cloud/ipfs/" or "https://your-gateway.mypinata.cloud/ipfs/")
+     */
+    function setGatewayURL(string memory newGatewayURL) external onlyOwner {
+        string memory oldURL = gatewayURL;
+        gatewayURL = newGatewayURL;
+        emit GatewayURLUpdated(oldURL, newGatewayURL);
+    }
     
     function createEvent(uint256 eventId, string memory eventName) external onlyOwner {
         eventNames[eventId] = eventName;
@@ -50,17 +67,17 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
     function _mintPoAInternal(address recipient, uint256 eventId, string memory ipfsHash) internal returns (uint256) {
         uint256 tokenId = _tokenIdCounter.current();
         _tokenIdCounter.increment();
-        
+
         _safeMint(recipient, tokenId);
-        
+
         isPoA[tokenId] = true;
         tokenToEventId[tokenId] = eventId;
         hasPoAForEvent[recipient][eventId] = true;
-        
-        // Use dynamic IPFS metadata (same as POC certificates)
-        string memory uri = string(abi.encodePacked("https://gateway.pinata.cloud/ipfs/", ipfsHash));
+
+        // Use configurable gateway URL
+        string memory uri = string(abi.encodePacked(gatewayURL, ipfsHash));
         _setTokenURI(tokenId, uri);
-        
+
         return tokenId;
     }
     
@@ -75,37 +92,37 @@ contract CertificateNFT is ERC721, ERC721URIStorage, Ownable {
     
     function mintCertificate(address recipient, uint256 eventId, string memory ipfsHash) external {
         require(bytes(eventNames[eventId]).length > 0, "Event does not exist");
-        
+
         uint256 tokenId = _tokenIdCounter.current();
         _tokenIdCounter.increment();
-        
+
         _safeMint(recipient, tokenId);
-        
+
         isPoA[tokenId] = false;
         tokenToEventId[tokenId] = eventId;
-        
-        // Use full HTTPS URL for better wallet compatibility
-        string memory uri = string(abi.encodePacked("https://gateway.pinata.cloud/ipfs/", ipfsHash));
+
+        // Use configurable gateway URL
+        string memory uri = string(abi.encodePacked(gatewayURL, ipfsHash));
         _setTokenURI(tokenId, uri);
-        
+
         emit CertificateMinted(recipient, tokenId, eventId, ipfsHash);
     }
     
     function mintCertificateByOwner(address recipient, uint256 eventId, string memory ipfsHash) external onlyOwner {
         require(bytes(eventNames[eventId]).length > 0, "Event does not exist");
-        
+
         uint256 tokenId = _tokenIdCounter.current();
         _tokenIdCounter.increment();
-        
+
         _safeMint(recipient, tokenId);
-        
+
         isPoA[tokenId] = false;
         tokenToEventId[tokenId] = eventId;
-        
-        // Use full HTTPS URL for better wallet compatibility
-        string memory uri = string(abi.encodePacked("https://gateway.pinata.cloud/ipfs/", ipfsHash));
+
+        // Use configurable gateway URL
+        string memory uri = string(abi.encodePacked(gatewayURL, ipfsHash));
         _setTokenURI(tokenId, uri);
-        
+
         emit CertificateMinted(recipient, tokenId, eventId, ipfsHash);
     }
     

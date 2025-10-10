@@ -218,7 +218,7 @@ class CertificateGenerator:
                 
                 if response.status_code == 200:
                     ipfs_hash = response.json()['IpfsHash']
-                    image_url = f"https://gateway.pinata.cloud/ipfs/{ipfs_hash}"
+                    image_url = f"https://red-biological-whitefish-939.mypinata.cloud/ipfs/{ipfs_hash}"
                     
                     # Create NFT metadata
                     # Convert date to string if it's a date object
@@ -261,13 +261,13 @@ class CertificateGenerator:
                     
                     if metadata_response.status_code == 200:
                         metadata_hash = metadata_response.json()['IpfsHash']
-                        
+
                         return {
                             "success": True,
                             "image_hash": ipfs_hash,
                             "image_url": image_url,
                             "metadata_hash": metadata_hash,
-                            "metadata_url": f"https://gateway.pinata.cloud/ipfs/{metadata_hash}"
+                            "metadata_url": f"https://red-biological-whitefish-939.mypinata.cloud/ipfs/{metadata_hash}"
                         }
                     else:
                         return {

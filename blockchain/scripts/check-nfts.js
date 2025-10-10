@@ -6,7 +6,7 @@ dotenv.config();
 async function main() {
     const RPC = process.env.RPC_URL || "http://127.0.0.1:8545";
     const provider = new ethers.JsonRpcProvider(RPC);
-    const contractAddress = process.env.CONTRACT_ADDRESS || "0xf55562677316d7620d5ebee2d9691a7ce3485740";
+    const contractAddress = process.env.CONTRACT_ADDRESS || "0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7";
 
     const contractABI = [
         "event PoAMinted(address indexed recipient, uint256 tokenId, uint256 eventId)",

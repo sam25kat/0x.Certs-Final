@@ -16,7 +16,7 @@ def test_poa_token_id_email():
         participant_name="Sameer Katte",
         event_name="Test PoA Event",
         certificate_path="test_cert.jpg",  # Mock path
-        contract_address="0xf55562677316d7620d5ebee2d9691a7ce3485740",
+        contract_address="0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7",
         token_id="999",  # Certificate token ID
         poa_token_id="1"  # Actual PoA token ID from database
     )

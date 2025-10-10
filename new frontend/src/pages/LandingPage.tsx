@@ -506,12 +506,12 @@ export default function LandingPage() {
                       <label className="text-primary font-medium text-sm mb-2 block">Contract Address</label>
                       <div className="flex items-center gap-2">
                         <code className="flex-1 p-3 bg-muted/20 rounded text-gray-300 font-mono text-sm break-all">
-                          0xf55562677316d7620d5ebee2d9691a7ce3485740
+                          0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7
                         </code>
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => copyToClipboard('0xf55562677316d7620d5ebee2d9691a7ce3485740', 'contract')}
+                          onClick={() => copyToClipboard('0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7', 'contract')}
                           className="text-gray-400 hover:text-white"
                         >
                           {copiedAddress === 'contract' ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}

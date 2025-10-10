@@ -5,7 +5,7 @@ async function repairAllEvents() {
     const privateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
     const signer = new ethers.Wallet(privateKey, provider);
     
-    const contractAddress = "0xf55562677316d7620d5ebee2d9691a7ce3485740";
+    const contractAddress = "0x96A4A39ae899cf43eEBDC980D0B87a07bc9211d7";
     const contractABI = [
         "function createEvent(uint256 eventId, string memory eventName) external",
         "function eventNames(uint256) external view returns (string memory)"
